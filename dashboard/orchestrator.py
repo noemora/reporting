@@ -5,7 +5,7 @@ import streamlit as st
 
 from config import AppConfig
 from data import DataFilter
-from services import KPICalculator, TableBuilder
+from services import TableBuilder
 from ui import ChartRenderer, UIRenderer
 
 
@@ -15,52 +15,42 @@ class DashboardOrchestrator:
     def __init__(self, config: AppConfig):
         self.config = config
         self.filter = DataFilter(config)
-        self.kpi_calculator = KPICalculator(config)
         self.table_builder = TableBuilder(config)
         self.chart_renderer = ChartRenderer(config)
         self.ui_renderer = UIRenderer()
     
     def render_dashboard(self, df: pd.DataFrame) -> None:
         """Render complete hybrid dashboard."""
-        card_placeholder = st.container()
-        
         # Render filters
         st.subheader("Filtros")
-        selected_year, selected_client, tipos = self._render_filters(df)
+        selected_year, selected_client = self._render_filters(df)
         
         # Apply filters
-        base_filtered = self._apply_base_filters(df, selected_client, tipos)
+        base_filtered = self._apply_base_filters(df, selected_client)
         filtered = self.filter.filter_by_year(base_filtered, selected_year)
         
         if filtered.empty:
             st.warning("No hay datos para los filtros seleccionados.")
             return
         
-        # Render KPI cards
-        with card_placeholder:
-            resolved_df = self.filter.filter_resolved_by_year(base_filtered, selected_year)
-            kpis = self.kpi_calculator.calculate_kpis(filtered, resolved_df)
-            self.ui_renderer.render_kpi_cards(kpis)
-        
         # Filter production environment
         filtered_prod = self.filter.filter_production_environment(filtered)
         
-        # Render incidents table
-        st.subheader("Incidentes y consulta de informacion")
-        self._render_incidents_table(filtered_prod, base_filtered, selected_year)
-        
         # Render missing fields
         self.ui_renderer.render_missing_fields_expander(filtered_prod, filtered)
-        
+
+        st.header("Consulta de Informacion e Incidencias")
+
         # Render analysis sections
-        self._render_estado_section(filtered_prod, selected_year)
+        self._render_incidents_table(filtered_prod, base_filtered, selected_year)
+        self._render_resolucion_section(filtered_prod, selected_year)
         self._render_modulo_section(filtered_prod, selected_year)
         self._render_ambiente_section(filtered, selected_year)
-        self._render_resolucion_section(filtered_prod, selected_year)
+        self._render_estado_section(filtered_prod, selected_year)
     
     def _render_filters(self, df: pd.DataFrame) -> tuple:
         """Render filter controls and return selections."""
-        col1, col2, col3 = st.columns(3)
+        col1, col2 = st.columns(2)
         
         with col1:
             year_options = sorted(df["Año"].dropna().unique())
@@ -85,27 +75,23 @@ class DashboardOrchestrator:
                 else "Todos"
             )
         
-        with col3:
-            tipos = st.multiselect(
-                "Tipo",
-                sorted(df["Tipo"].dropna().unique()),
-                key="hybrid_tipo",
-            )
-        
-        return selected_year, selected_client, tipos
+        return selected_year, selected_client
     
     def _apply_base_filters(
-        self, df: pd.DataFrame, selected_client: str, tipos: List[str]
+        self, df: pd.DataFrame, selected_client: str
     ) -> pd.DataFrame:
-        """Apply base filters (client and types)."""
+        """Apply base filters (client and hardcoded types)."""
+        # Always filter by 'Consulta de informacion' and 'Incidencia'
+        default_tipos = ["Consulta de informacion", "Incidencia"]
         filtered = self.filter.filter_by_client(df, selected_client)
-        filtered = self.filter.filter_by_types(filtered, tipos)
+        filtered = self.filter.filter_by_types(filtered, default_tipos)
         return filtered
     
     def _render_incidents_table(
         self, filtered_prod: pd.DataFrame, base_filtered: pd.DataFrame, selected_year: Optional[int]
     ) -> None:
         """Render the incidents and consultation table."""
+        st.subheader("Flujo de tickets")
         filtered_prod = filtered_prod.dropna(subset=["Hora de creacion"])
         month_order = list(range(1, 13))
         
@@ -119,7 +105,10 @@ class DashboardOrchestrator:
         # Resolved counts
         resolved_base = self.filter.filter_resolved_by_year(base_filtered, selected_year)
         resolved_prod = self.filter.filter_production_environment(resolved_base)
-        resolved_mask = self.kpi_calculator._build_resolved_mask(resolved_prod)
+        resolved_mask = (
+            resolved_prod["Estado de resolucion"].astype(str).str.lower().isin(self.config.RESOLVED_STATES)
+            | resolved_prod["Estado"].astype(str).str.lower().isin(self.config.RESOLVED_STATES)
+        )
         
         resolved_counts = (
             resolved_prod[resolved_mask]
@@ -139,7 +128,7 @@ class DashboardOrchestrator:
         pivot = self.table_builder.build_pivot_table(filtered_prod, "Estado", "Sin estado")
         st.dataframe(pivot, use_container_width=True)
         self.chart_renderer.render_trend_chart(
-            filtered_prod, "Estado", selected_year, "Tendencia de estado por mes"
+            filtered_prod, "Estado", selected_year
         )
     
     def _render_modulo_section(self, filtered_prod: pd.DataFrame, selected_year: Optional[int]) -> None:
@@ -148,7 +137,7 @@ class DashboardOrchestrator:
         pivot = self.table_builder.build_pivot_table(filtered_prod, "Modulo", "Sin módulo")
         st.dataframe(pivot, use_container_width=True)
         self.chart_renderer.render_trend_chart(
-            filtered_prod, "Modulo", selected_year, "Tendencia de módulo por mes"
+            filtered_prod, "Modulo", selected_year
         )
     
     def _render_ambiente_section(self, filtered: pd.DataFrame, selected_year: Optional[int]) -> None:
@@ -157,17 +146,31 @@ class DashboardOrchestrator:
         pivot = self.table_builder.build_pivot_table(filtered, "Ambiente", "Sin ambiente")
         st.dataframe(pivot, use_container_width=True)
         self.chart_renderer.render_trend_chart(
-            filtered, "Ambiente", selected_year, "Tendencia de ambiente por mes"
+            filtered, "Ambiente", selected_year
         )
     
     def _render_resolucion_section(self, filtered_prod: pd.DataFrame, selected_year: Optional[int]) -> None:
         """Render resolucion (resolution) analysis section."""
-        st.subheader("Conteo por estado de resolución")
+        st.subheader("Conteo por SLA")
         pivot = self.table_builder.build_pivot_table(
             filtered_prod, "Estado de resolucion", "Sin estado de resolución"
+        )
+        pivot = pivot.rename(
+            index={
+                label: "Cumplido"
+                for label in pivot.index
+                if str(label).strip().lower() == "within sla"
+            }
+        )
+        pivot = pivot.rename(
+            index={
+                label: "Incumplido"
+                for label in pivot.index
+                if str(label).strip().lower() == "sla violated"
+            }
         )
         pivot = self.table_builder.add_sla_percentage_row(pivot)
         st.dataframe(pivot, use_container_width=True)
         self.chart_renderer.render_trend_chart(
-            filtered_prod, "Estado de resolucion", selected_year, "Tendencia de estado de resolución por mes"
+            filtered_prod, "Estado de resolucion", selected_year
         )

@@ -18,19 +18,26 @@ class ChartRenderer:
         df: pd.DataFrame,
         category_col: str,
         selected_year: Optional[int],
-        title: str,
     ) -> None:
         """Render a monthly trend chart with labels."""
         trend = self._prepare_trend_data(df, category_col, selected_year)
-        fig = self._create_line_chart(trend, category_col, title)
+        fig = self._create_line_chart(trend, category_col)
         
-        st.subheader(title)
         st.plotly_chart(fig, use_container_width=True)
     
     def _prepare_trend_data(
         self, df: pd.DataFrame, category_col: str, selected_year: Optional[int]
     ) -> pd.DataFrame:
         """Prepare trend data for visualization."""
+        if category_col == "Estado de resolucion":
+            df = df.copy()
+            normalized = df[category_col].astype(str).str.strip().str.lower()
+            df[category_col] = df[category_col].where(
+                ~normalized.eq("within sla"), "Cumplido"
+            )
+            df[category_col] = df[category_col].where(
+                ~normalized.eq("sla violated"), "Incumplido"
+            )
         trend = (
             df.groupby(["Periodo", category_col])["ID del ticket"]
             .nunique()
@@ -59,9 +66,7 @@ class ChartRenderer:
         
         return trend
     
-    def _create_line_chart(
-        self, trend: pd.DataFrame, category_col: str, title: str
-    ) -> px.line:
+    def _create_line_chart(self, trend: pd.DataFrame, category_col: str) -> px.line:
         """Create a plotly line chart."""
         fig = px.line(
             trend,
@@ -73,7 +78,7 @@ class ChartRenderer:
             labels={
                 "Periodo": "Mes",
                 "ID del ticket": "Tickets",
-                category_col: title.replace("Tendencia de ", "").replace(" por mes", ""),
+                category_col: category_col,
             },
         )
         fig.update_traces(textposition="top center", texttemplate="%{y}")
