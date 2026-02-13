@@ -26,27 +26,43 @@ class DashboardOrchestrator:
         selected_year, selected_client = self._render_filters(df)
         
         # Apply filters
-        base_filtered = self._apply_base_filters(df, selected_client)
-        filtered = self.filter.filter_by_year(base_filtered, selected_year)
-        
-        if filtered.empty:
-            st.warning("No hay datos para los filtros seleccionados.")
-            return
-        
+        base_filtered = self._apply_type_filters(
+            df,
+            selected_client,
+            selected_year,
+            ["Consulta de informacion", "Incidencia"],
+        )
+        filtered = base_filtered
+
         # Filter production environment
         filtered_prod = self.filter.filter_production_environment(filtered)
-        
-        # Render missing fields
-        self.ui_renderer.render_missing_fields_expander(filtered_prod, filtered)
 
-        st.header("Consulta de Informacion e Incidencias")
+        st.header("KPIs - Consulta de Informacion e Incidencias")
 
-        # Render analysis sections
-        self._render_incidents_table(filtered_prod, base_filtered, selected_year)
-        self._render_resolucion_section(filtered_prod, selected_year)
-        self._render_modulo_section(filtered_prod, selected_year)
-        self._render_ambiente_section(filtered, selected_year)
-        self._render_estado_section(filtered_prod, selected_year)
+        if filtered.empty:
+            st.warning("No hay datos para Consulta de Informacion e Incidencias con los filtros seleccionados.")
+        else:
+            # Render missing fields
+            self.ui_renderer.render_missing_fields_expander(filtered_prod, filtered)
+
+            # Render analysis sections
+            self._render_incidents_table(filtered_prod, df, selected_client, selected_year)
+            self._render_resolucion_section(filtered_prod, df, selected_client, selected_year)
+            self._render_modulo_section(filtered_prod, selected_year)
+            self._render_ambiente_section(filtered, selected_year)
+            self._render_estado_section(filtered_prod, selected_year)
+
+        cambio_filtered = self._apply_type_filters(
+            df, selected_client, selected_year, ["Cambio", "Interno"]
+        )
+
+        st.header("KPIs - Solicitudes de Cambio y Mejoras Tecnicas")
+
+        if cambio_filtered.empty:
+            st.warning("No hay datos para Solicitudes de Cambio/Mejoras Tecnicas con los filtros seleccionados.")
+        else:
+            self._render_modulo_section(cambio_filtered, selected_year)
+            self._render_estado_section(cambio_filtered, selected_year)
     
     def _render_filters(self, df: pd.DataFrame) -> tuple:
         """Render filter controls and return selections."""
@@ -77,21 +93,27 @@ class DashboardOrchestrator:
         
         return selected_year, selected_client
     
-    def _apply_base_filters(
-        self, df: pd.DataFrame, selected_client: str
+    def _apply_type_filters(
+        self,
+        df: pd.DataFrame,
+        selected_client: str,
+        selected_year: Optional[int],
+        types: List[str],
     ) -> pd.DataFrame:
-        """Apply base filters (client and hardcoded types)."""
-        # Always filter by 'Consulta de informacion' and 'Incidencia'
-        default_tipos = ["Consulta de informacion", "Incidencia"]
+        """Apply client, year, and ticket type filters."""
         filtered = self.filter.filter_by_client(df, selected_client)
-        filtered = self.filter.filter_by_types(filtered, default_tipos)
+        filtered = self.filter.filter_by_year(filtered, selected_year)
+        filtered = self.filter.filter_by_types(filtered, types)
         return filtered
     
     def _render_incidents_table(
-        self, filtered_prod: pd.DataFrame, base_filtered: pd.DataFrame, selected_year: Optional[int]
+        self, filtered_prod: pd.DataFrame, df: pd.DataFrame, selected_client: str, selected_year: Optional[int]
     ) -> None:
         """Render the incidents and consultation table."""
         st.subheader("Flujo de tickets")
+        if filtered_prod.empty:
+            st.warning("No hay datos para Flujo de tickets con los filtros seleccionados.")
+            return
         filtered_prod = filtered_prod.dropna(subset=["Hora de creacion"])
         month_order = list(range(1, 13))
         
@@ -102,8 +124,10 @@ class DashboardOrchestrator:
             .reindex(month_order, fill_value=0)
         )
         
-        # Resolved counts
-        resolved_base = self.filter.filter_resolved_by_year(base_filtered, selected_year)
+        # Resolved counts - apply filters WITHOUT year of creation filter
+        resolved_base = self.filter.filter_by_client(df, selected_client)
+        resolved_base = self.filter.filter_by_types(resolved_base, ["Consulta de informacion", "Incidencia"])
+        resolved_base = self.filter.filter_resolved_by_year(resolved_base, selected_year)
         resolved_prod = self.filter.filter_production_environment(resolved_base)
         resolved_mask = (
             resolved_prod["Estado de resolucion"].astype(str).str.lower().isin(self.config.RESOLVED_STATES)
@@ -125,6 +149,9 @@ class DashboardOrchestrator:
     def _render_estado_section(self, filtered_prod: pd.DataFrame, selected_year: Optional[int]) -> None:
         """Render estado (status) analysis section."""
         st.subheader("Conteo por estado")
+        if filtered_prod.empty:
+            st.warning("No hay datos para Conteo por estado con los filtros seleccionados.")
+            return
         pivot = self.table_builder.build_pivot_table(filtered_prod, "Estado", "Sin estado")
         st.dataframe(pivot, use_container_width=True)
         self.chart_renderer.render_trend_chart(
@@ -134,6 +161,9 @@ class DashboardOrchestrator:
     def _render_modulo_section(self, filtered_prod: pd.DataFrame, selected_year: Optional[int]) -> None:
         """Render modulo (module) analysis section."""
         st.subheader("Conteo por módulo")
+        if filtered_prod.empty:
+            st.warning("No hay datos para Conteo por módulo con los filtros seleccionados.")
+            return
         pivot = self.table_builder.build_pivot_table(filtered_prod, "Modulo", "Sin módulo")
         st.dataframe(pivot, use_container_width=True)
         self.chart_renderer.render_trend_chart(
@@ -143,17 +173,36 @@ class DashboardOrchestrator:
     def _render_ambiente_section(self, filtered: pd.DataFrame, selected_year: Optional[int]) -> None:
         """Render ambiente (environment) analysis section."""
         st.subheader("Conteo por ambiente")
+        if filtered.empty:
+            st.warning("No hay datos para Conteo por ambiente con los filtros seleccionados.")
+            return
         pivot = self.table_builder.build_pivot_table(filtered, "Ambiente", "Sin ambiente")
         st.dataframe(pivot, use_container_width=True)
         self.chart_renderer.render_trend_chart(
             filtered, "Ambiente", selected_year
         )
     
-    def _render_resolucion_section(self, filtered_prod: pd.DataFrame, selected_year: Optional[int]) -> None:
+    def _render_resolucion_section(self, filtered_prod: pd.DataFrame, df: pd.DataFrame, selected_client: str, selected_year: Optional[int]) -> None:
         """Render resolucion (resolution) analysis section."""
         st.subheader("Conteo por SLA")
+        
+        # Build SLA data without year of creation filter
+        sla_base = self.filter.filter_by_client(df, selected_client)
+        sla_base = self.filter.filter_by_types(sla_base, ["Consulta de informacion", "Incidencia"])
+        sla_base = self.filter.filter_resolved_by_year(sla_base, selected_year)
+        sla_prod = self.filter.filter_production_environment(sla_base)
+        
+        if sla_prod.empty:
+            st.warning("No hay datos para Conteo por SLA con los filtros seleccionados.")
+            return
+        
+        # Create Mes column based on resolution date for SLA table
+        sla_prod = sla_prod.copy()
+        sla_prod["Mes"] = pd.to_datetime(sla_prod["Hora de resolucion"], errors="coerce").dt.month
+        
+        # Build pivot table from all resolved tickets in selected year
         pivot = self.table_builder.build_pivot_table(
-            filtered_prod, "Estado de resolucion", "Sin estado de resolución"
+            sla_prod, "Estado de resolucion", "Sin estado de resolución"
         )
         pivot = pivot.rename(
             index={
@@ -172,5 +221,23 @@ class DashboardOrchestrator:
         pivot = self.table_builder.add_sla_percentage_row(pivot)
         st.dataframe(pivot, use_container_width=True)
         self.chart_renderer.render_trend_chart(
-            filtered_prod, "Estado de resolucion", selected_year
+            sla_prod, "Estado de resolucion", selected_year
         )
+        
+        # Show SLA compliant ticket detail
+        # Filter only SLA compliant tickets (Within SLA)
+        sla_compliant_mask = sla_prod["Estado de resolucion"].astype(str).str.strip().str.lower() == "within sla"
+        
+        sla_data = sla_prod[sla_compliant_mask].copy()
+        if not sla_data.empty:
+            sla_data["Mes"] = pd.to_datetime(sla_data["Hora de resolucion"], errors="coerce").dt.month
+            total_compliant = len(sla_data)
+            month_order = list(range(1, 13))
+            
+            with st.expander(f"Ver detalle de tickets cumplidos ({total_compliant} tickets)"):
+                for month in month_order:
+                    month_tickets = sla_data[sla_data["Mes"] == month]["ID del ticket"].dropna().unique()
+                    if len(month_tickets) > 0:
+                        month_name = self.config.MONTH_NAMES_ES.get(month, str(month))
+                        st.write(f"**{month_name}** ({len(month_tickets)} tickets):")
+                        st.write(sorted(month_tickets.tolist()))
