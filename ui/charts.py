@@ -31,13 +31,23 @@ class ChartRenderer:
         """Prepare trend data for visualization."""
         if category_col == "Estado de resolucion":
             df = df.copy()
-            normalized = df[category_col].astype(str).str.strip().str.lower()
-            df[category_col] = df[category_col].where(
-                ~normalized.eq("within sla"), "Cumplido"
-            )
-            df[category_col] = df[category_col].where(
-                ~normalized.eq("sla violated"), "Incumplido"
-            )
+            # Normalize Estado de resolucion values (already normalized in orchestrator)
+            # This is just for consistency if called from elsewhere
+            def normalize_resolution_status(value):
+                if pd.isna(value):
+                    return "Sin estado de resolución"
+                str_value = str(value).strip().lower()
+                if not str_value or str_value == "nan" or str_value == "":
+                    return "Sin estado de resolución"
+                elif str_value == "within sla":
+                    return "Cumplido"
+                elif str_value == "sla violated":
+                    return "Incumplido"
+                else:
+                    return value
+            
+            df[category_col] = df[category_col].apply(normalize_resolution_status)
+        
         trend = (
             df.groupby(["Periodo", category_col])["ID del ticket"]
             .nunique()

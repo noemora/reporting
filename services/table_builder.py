@@ -25,7 +25,6 @@ class TableBuilder:
         table.index.name = "Recepcion/atencion de tickets"
         table = table.fillna(0)
         table["Total"] = table.sum(axis=1)
-        table.loc["Total"] = table.sum(axis=0)
         return table
     
     def build_pivot_table(

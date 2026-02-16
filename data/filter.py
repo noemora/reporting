@@ -24,6 +24,12 @@ class DataFilter:
             return df
         return df[df["Grupo"] == client]
     
+    def filter_by_team(self, df: pd.DataFrame, team: List[str]) -> pd.DataFrame:
+        """Filter data by team asignado."""
+        if not team or "Team Asignado" not in df.columns:
+            return df
+        return df[df["Team Asignado"].isin(team)]
+    
     def filter_by_types(self, df: pd.DataFrame, types: List[str]) -> pd.DataFrame:
         """Filter data by ticket types."""
         if not types or "Tipo" not in df.columns:

@@ -18,16 +18,7 @@ class UIRenderer:
             return df.loc[mask, "ID del ticket"].dropna().unique().tolist()
         
         missing_modulo = get_missing_ids(filtered_prod, "Modulo")
-        missing_resolucion = get_missing_ids(filtered_prod, "Estado de resolucion")
-        missing_ambiente = get_missing_ids(filtered, "Ambiente")
-        missing_estado = get_missing_ids(filtered_prod, "Estado")
         
         with st.expander("Detalle de tickets con campos vacíos"):
-            if missing_estado:
-                st.write("Estado (productivo):", missing_estado)
             if missing_modulo:
                 st.write("Módulo (productivo):", missing_modulo)
-            if missing_resolucion:
-                st.write("Estado de resolución (productivo):", missing_resolucion)
-            if missing_ambiente:
-                st.write("Ambiente:", missing_ambiente)
