@@ -19,69 +19,64 @@ class DashboardOrchestrator:
         self.chart_renderer = ChartRenderer(config)
         self.ui_renderer = UIRenderer()
     
-    def render_dashboard(self, df: pd.DataFrame) -> None:
+    def render_dashboard(self, df: pd.DataFrame, usage_df: Optional[pd.DataFrame] = None) -> None:
         """Render complete hybrid dashboard."""
         # Render filters
         st.subheader("Filtros")
         selected_year, selected_client, selected_team = self._render_filters(df)
-        
-        # Apply filters
-        base_filtered = self._apply_type_filters(
-            df,
-            selected_client,
-            selected_year,
-            selected_team,
-            ["Consulta de informacion", "Incidencia"],
-        )
-        filtered = base_filtered
 
-        # Filter production environment
-        filtered_prod = self.filter.filter_production_environment(filtered)
+        self._render_usage_table(usage_df, selected_year, selected_client)
+        
+        base_filtered = self.filter.filter_by_client(df, selected_client)
+        base_filtered = self.filter.filter_by_team(base_filtered, selected_team)
+        base_filtered = self.filter.filter_by_types(
+            base_filtered, ["Consulta de informacion", "Incidencia"]
+        )
 
         st.header("KPIs - Consulta de Informacion e Incidencias")
         st.subheader("Análisis de tickets en ambientes productivos")
 
-        if filtered.empty:
+        if base_filtered.empty:
             st.warning("No hay datos para Consulta de Informacion e Incidencias con los filtros seleccionados.")
         else:
             # Render missing fields
             # self.ui_renderer.render_missing_fields_expander(filtered_prod, filtered)
 
             # Render analysis sections
-            self._render_incidents_table(filtered_prod, df, selected_client, selected_year, selected_team)
-            self._render_team_section(filtered_prod, selected_year)
-            self._render_resolucion_section(filtered_prod, df, selected_client, selected_year, selected_team)
-            self._render_modulo_section(filtered_prod, selected_year)
-            self._render_ambiente_section(filtered, selected_year)
-            self._render_estado_section(filtered_prod, selected_year)
+            self._render_incidents_table(base_filtered, selected_year)
+            self._render_team_section(base_filtered, selected_year, prod_only=True)
+            self._render_resolucion_section(base_filtered, selected_year)
+            self._render_modulo_section(base_filtered, selected_year, prod_only=True)
+            self._render_ambiente_section(base_filtered, selected_year)
+            self._render_estado_section(base_filtered, selected_year, prod_only=True)
 
-        cambio_filtered = self._apply_type_filters(
-            df, selected_client, selected_year, selected_team, ["Cambio"]
-        )
+        cambio_base = self.filter.filter_by_client(df, selected_client)
+        cambio_base = self.filter.filter_by_team(cambio_base, selected_team)
+        cambio_base = self.filter.filter_by_types(cambio_base, ["Cambio"])
 
         st.header("KPIs - Solicitudes de Cambio")
         st.subheader("Análisis de tickets de TODOS los ambientes")
 
-        if cambio_filtered.empty:
+        if cambio_base.empty:
             st.warning("No hay datos para Solicitudes de Cambio con los filtros seleccionados.")
         else:
-            self._render_team_section(cambio_filtered, selected_year)
-            self._render_modulo_section(cambio_filtered, selected_year)
-            self._render_estado_section(cambio_filtered, selected_year)
+            self._render_team_section(cambio_base, selected_year, prod_only=False)
+            self._render_modulo_section(cambio_base, selected_year, prod_only=False)
+            self._render_estado_section(cambio_base, selected_year, prod_only=False)
 
-        internos_filtered = self._apply_type_filters(
-            df, selected_client, selected_year, selected_team, ["Interno"]
-        )
+        internos_base = self.filter.filter_by_client(df, selected_client)
+        internos_base = self.filter.filter_by_team(internos_base, selected_team)
+        internos_base = self.filter.filter_by_types(internos_base, ["Interno"])
 
         st.header("KPIs - Solicitudes de Mejoras Técnicas")
         st.subheader("Análisis de tickets de TODOS los ambientes")
 
-        if internos_filtered.empty:
+        if internos_base.empty:
             st.warning("No hay datos para Solicitudes de Mejoras Técnicas con los filtros seleccionados.")
         else:
-            self._render_team_section(internos_filtered, selected_year)
-            self._render_modulo_section(internos_filtered, selected_year)
-            self._render_estado_section(internos_filtered, selected_year)
+            self._render_team_section(internos_base, selected_year, prod_only=False)
+            self._render_modulo_section(internos_base, selected_year, prod_only=False)
+            self._render_estado_section(internos_base, selected_year, prod_only=False)
     
     def _render_filters(self, df: pd.DataFrame) -> tuple:
         """Render filter controls and return selections."""
@@ -97,7 +92,13 @@ class DashboardOrchestrator:
                     key=lambda idx: abs(year_options[idx] - current_year),
                 )
             selected_year = (
-                st.selectbox("Año", year_options, index=year_index, key="hybrid_year")
+                st.selectbox(
+                    "Año",
+                    year_options,
+                    index=year_index,
+                    key="hybrid_year",
+                    format_func=lambda value: f"{int(value) - 1} - {int(value)}",
+                )
                 if year_options
                 else None
             )
@@ -119,6 +120,135 @@ class DashboardOrchestrator:
             )
         
         return selected_year, selected_client, selected_team
+
+    def _render_usage_table(
+        self,
+        usage_df: Optional[pd.DataFrame],
+        selected_year: Optional[int],
+        selected_client: str,
+    ) -> None:
+        """Render the platform usage table from the logins Excel."""
+        st.header("Usabilidad - Actividad en la plataforma")
+        if usage_df is None or usage_df.empty:
+            st.info("No hay datos de logins para mostrar.")
+            return
+
+        def resolve_column(df: pd.DataFrame, target: str) -> Optional[str]:
+            for col in df.columns:
+                if col.strip().lower() == target:
+                    return col
+            return None
+
+        col_cliente = resolve_column(usage_df, "cliente")
+        col_logins = resolve_column(usage_df, "logins")
+        col_mes = resolve_column(usage_df, "mes")
+        col_anio = resolve_column(usage_df, "año") or resolve_column(usage_df, "anio")
+
+        missing_cols = [
+            name
+            for name, col in [
+                ("cliente", col_cliente),
+                ("Logins", col_logins),
+                ("mes", col_mes),
+                ("año", col_anio),
+            ]
+            if col is None
+        ]
+        if missing_cols:
+            st.warning(
+                "Faltan columnas en el Excel de logins: " + ", ".join(missing_cols)
+            )
+            return
+
+        usage = usage_df.rename(
+            columns={
+                col_cliente: "cliente",
+                col_logins: "logins",
+                col_mes: "mes",
+                col_anio: "anio",
+            }
+        ).copy()
+        usage["anio"] = pd.to_numeric(usage["anio"], errors="coerce")
+        usage["logins"] = pd.to_numeric(usage["logins"], errors="coerce").fillna(0)
+        usage["Cliente"] = usage["cliente"].astype(str)
+
+        if selected_client and selected_client != "Todos":
+            usage = usage[usage["cliente"] == selected_client]
+
+        if usage.empty:
+            st.info("No hay datos de logins para los filtros seleccionados.")
+            return
+
+        month_map = {name.lower(): num for num, name in self.config.MONTH_NAMES_ES.items()}
+        month_numeric = pd.to_numeric(usage["mes"], errors="coerce")
+        if month_numeric.notna().any():
+            usage["mes_num"] = month_numeric
+        else:
+            usage["mes_num"] = (
+                usage["mes"].astype(str).str.strip().str.lower().map(month_map)
+            )
+
+        usage = usage.dropna(subset=["mes_num"])
+        if usage.empty:
+            st.info("No hay meses validos para los filtros seleccionados.")
+            return
+
+        usage["mes_num"] = usage["mes_num"].astype(int)
+
+        current_year = selected_year or pd.Timestamp.today().year
+        years = [current_year - 1, current_year]
+
+        tables = []
+        for year in years:
+            year_usage = usage[usage["anio"] == year]
+            if year_usage.empty:
+                st.info(f"ℹ️ No hay datos de logins para el año {year}")
+                continue
+            pivot = (
+                year_usage.groupby(["cliente", "mes_num"])["logins"]
+                .sum()
+                .unstack(fill_value=0)
+                .sort_index()
+            )
+
+            month_order = list(range(1, 13))
+            pivot = pivot.reindex(columns=month_order, fill_value=0)
+            pivot.columns = [self.config.MONTH_NAMES_ES.get(m, str(m)) for m in pivot.columns]
+            pivot["Total"] = pivot.sum(axis=1)
+            pivot = pivot.sort_values(by="Total", ascending=False)
+            pivot.index.name = "Cliente"
+
+            year_row = pd.DataFrame(
+                [{col: pd.NA for col in pivot.columns}],
+                index=[f"AÑO {year}"],
+            )
+            year_row.index.name = pivot.index.name
+            tables.extend([year_row, pivot])
+
+        if not tables:
+            st.warning("No hay datos de logins para los filtros seleccionados.")
+            return
+
+        combined_table = pd.concat(tables)
+        combined_table.index.name = "Cliente"
+        numeric_cols = [col for col in combined_table.columns]
+        combined_table[numeric_cols] = combined_table[numeric_cols].apply(
+            pd.to_numeric, errors="coerce"
+        )
+        display_table = combined_table.apply(
+            lambda col: col.map(
+                lambda value: ""
+                if pd.isna(value)
+                else f"{value:,.0f}".replace(",", ".")
+                if isinstance(value, (int, float)) and not isinstance(value, bool)
+                else str(value)
+            )
+        )
+        st.table(display_table)
+
+        usage_chart = usage[usage["anio"].isin(years)].copy()
+        if not usage_chart.empty:
+            self.chart_renderer.render_usage_trend_chart(usage_chart, None)
     
     def _apply_type_filters(
         self,
@@ -136,136 +266,354 @@ class DashboardOrchestrator:
         return filtered
     
     def _render_incidents_table(
-        self, filtered_prod: pd.DataFrame, df: pd.DataFrame, selected_client: str, selected_year: Optional[int], selected_team: List[str]
+        self, base_filtered: pd.DataFrame, selected_year: Optional[int]
     ) -> None:
         """Render the incidents and consultation table."""
         st.subheader("KPI - Flujo de tickets")
-        if filtered_prod.empty:
+        current_year = selected_year or pd.Timestamp.today().year
+        years = [current_year - 1, current_year]
+
+        tables = []
+        for year in years:
+            created_base = self.filter.filter_by_year(base_filtered, year)
+            created_prod = self.filter.filter_production_environment(created_base)
+            created_prod = created_prod.dropna(subset=["Hora de creacion"])
+            month_order = list(range(1, 13))
+            if created_prod.empty:
+                created_counts = pd.Series(0, index=month_order)
+            else:
+                created_counts = (
+                    created_prod.groupby(created_prod["Hora de creacion"].dt.month)["ID del ticket"]
+                    .nunique()
+                    .reindex(month_order, fill_value=0)
+                )
+
+            resolved_base = self.filter.filter_resolved_by_year(base_filtered, year)
+            resolved_prod = self.filter.filter_production_environment(resolved_base)
+            resolved_mask = (
+                resolved_prod["Estado de resolucion"].astype(str).str.lower().isin(self.config.RESOLVED_STATES)
+                | resolved_prod["Estado"].astype(str).str.lower().isin(self.config.RESOLVED_STATES)
+            )
+            if resolved_prod.empty:
+                resolved_counts = pd.Series(0, index=month_order)
+            else:
+                resolved_counts = (
+                    resolved_prod[resolved_mask]
+                    .groupby(pd.to_datetime(resolved_prod["Hora de resolucion"], errors="coerce").dt.month)[
+                        "ID del ticket"
+                    ]
+                    .nunique()
+                    .reindex(month_order, fill_value=0)
+                )
+
+            if created_counts.sum() == 0 and resolved_counts.sum() == 0:
+                st.info(f"ℹ️ No hay datos para el año {year}")
+                continue
+
+            table = self.table_builder.build_monthly_counts_table(created_counts, resolved_counts)
+            year_row = pd.DataFrame(
+                [{col: pd.NA for col in table.columns}],
+                index=[f"AÑO {year}"],
+            )
+            tables.extend([year_row, table])
+
+        if not tables:
             st.warning("No hay datos para Flujo de tickets con los filtros seleccionados.")
             return
-        filtered_prod = filtered_prod.dropna(subset=["Hora de creacion"])
-        month_order = list(range(1, 13))
-        
-        # Created counts
-        created_counts = (
-            filtered_prod.groupby(filtered_prod["Hora de creacion"].dt.month)["ID del ticket"]
-            .nunique()
-            .reindex(month_order, fill_value=0)
+
+        combined_table = pd.concat(tables)
+        combined_table.index.name = "Tickets"
+        combined_table[combined_table.columns] = combined_table[combined_table.columns].apply(
+            pd.to_numeric, errors="coerce"
         )
-        
-        # Resolved counts - apply filters WITHOUT year of creation filter
-        resolved_base = self.filter.filter_by_client(df, selected_client)
-        resolved_base = self.filter.filter_by_team(resolved_base, selected_team)
-        resolved_base = self.filter.filter_by_types(resolved_base, ["Consulta de informacion", "Incidencia"])
-        resolved_base = self.filter.filter_resolved_by_year(resolved_base, selected_year)
-        resolved_prod = self.filter.filter_production_environment(resolved_base)
-        resolved_mask = (
-            resolved_prod["Estado de resolucion"].astype(str).str.lower().isin(self.config.RESOLVED_STATES)
-            | resolved_prod["Estado"].astype(str).str.lower().isin(self.config.RESOLVED_STATES)
+        display_table = combined_table.apply(
+            lambda col: col.map(
+                lambda value: ""
+                if pd.isna(value)
+                else f"{value:,.0f}".replace(",", ".")
+                if isinstance(value, (int, float)) and not isinstance(value, bool)
+                else str(value)
+            )
         )
-        
-        resolved_counts = (
-            resolved_prod[resolved_mask]
-            .groupby(pd.to_datetime(resolved_prod["Hora de resolucion"], errors="coerce").dt.month)[
-                "ID del ticket"
-            ]
-            .nunique()
-            .reindex(month_order, fill_value=0)
-        )
-        
-        table = self.table_builder.build_monthly_counts_table(created_counts, resolved_counts)
-        st.dataframe(table, use_container_width=True)
+        st.table(display_table)
     
-    def _render_team_section(self, filtered_prod: pd.DataFrame, selected_year: Optional[int]) -> None:
+    def _render_team_section(
+        self, base_filtered: pd.DataFrame, selected_year: Optional[int], prod_only: bool
+    ) -> None:
         """Render team asignado analysis section."""
         st.subheader("KPI - Team Asignado")
-        if filtered_prod.empty:
+        current_year = selected_year or pd.Timestamp.today().year
+        years = [current_year - 1, current_year]
+
+        tables = []
+        for year in years:
+            year_df = self.filter.filter_by_year(base_filtered, year)
+            if prod_only:
+                year_df = self.filter.filter_production_environment(year_df)
+            if year_df.empty:
+                st.info(f"ℹ️ No hay datos para el año {year}")
+                continue
+            pivot = self.table_builder.build_pivot_table(
+                year_df, "Team Asignado", "Sin team asignado"
+            )
+            year_row = pd.DataFrame(
+                [{col: pd.NA for col in pivot.columns}],
+                index=[f"AÑO {year}"],
+            )
+            year_row.index.name = pivot.index.name
+            tables.extend([year_row, pivot])
+
+        if not tables:
             st.warning("No hay datos para KPI - Team Asignado con los filtros seleccionados.")
             return
-        pivot = self.table_builder.build_pivot_table(filtered_prod, "Team Asignado", "Sin team asignado")
-        st.dataframe(pivot, use_container_width=True)
-        self.chart_renderer.render_trend_chart(
-            filtered_prod, "Team Asignado", selected_year
+
+        combined_table = pd.concat(tables)
+        combined_table.index.name = "Team Asignado"
+        combined_table[combined_table.columns] = combined_table[combined_table.columns].apply(
+            pd.to_numeric, errors="coerce"
         )
-    
-    def _render_estado_section(self, filtered_prod: pd.DataFrame, selected_year: Optional[int]) -> None:
+        display_table = combined_table.apply(
+            lambda col: col.map(
+                lambda value: ""
+                if pd.isna(value)
+                else f"{value:,.0f}".replace(",", ".")
+                if isinstance(value, (int, float)) and not isinstance(value, bool)
+                else str(value)
+            )
+        )
+        st.table(display_table)
+
+        chart_years = [current_year - 1, current_year]
+        chart_df = base_filtered[base_filtered["Año"].isin(chart_years)].copy()
+        if prod_only:
+            chart_df = self.filter.filter_production_environment(chart_df)
+        if not chart_df.empty:
+            self.chart_renderer.render_trend_chart(
+                chart_df, "Team Asignado", None
+            )
+
+    def _render_estado_section(
+        self, base_filtered: pd.DataFrame, selected_year: Optional[int], prod_only: bool
+    ) -> None:
         """Render estado (status) analysis section."""
         st.subheader("KPI - Estado")
-        if filtered_prod.empty:
+        current_year = selected_year or pd.Timestamp.today().year
+        years = [current_year - 1, current_year]
+
+        tables = []
+        for year in years:
+            year_df = self.filter.filter_by_year(base_filtered, year)
+            if prod_only:
+                year_df = self.filter.filter_production_environment(year_df)
+            if year_df.empty:
+                st.info(f"ℹ️ No hay datos para el año {year}")
+                continue
+            pivot = self.table_builder.build_pivot_table(year_df, "Estado", "Sin estado")
+            year_row = pd.DataFrame(
+                [{col: pd.NA for col in pivot.columns}],
+                index=[f"AÑO {year}"],
+            )
+            year_row.index.name = pivot.index.name
+            tables.extend([year_row, pivot])
+
+        if not tables:
             st.warning("No hay datos para KPI - Estado con los filtros seleccionados.")
             return
-        pivot = self.table_builder.build_pivot_table(filtered_prod, "Estado", "Sin estado")
-        st.dataframe(pivot, use_container_width=True)
-        self.chart_renderer.render_trend_chart(
-            filtered_prod, "Estado", selected_year
+
+        combined_table = pd.concat(tables)
+        combined_table.index.name = "Estado"
+        combined_table[combined_table.columns] = combined_table[combined_table.columns].apply(
+            pd.to_numeric, errors="coerce"
         )
-    
-    def _render_modulo_section(self, filtered_prod: pd.DataFrame, selected_year: Optional[int]) -> None:
+        display_table = combined_table.apply(
+            lambda col: col.map(
+                lambda value: ""
+                if pd.isna(value)
+                else f"{value:,.0f}".replace(",", ".")
+                if isinstance(value, (int, float)) and not isinstance(value, bool)
+                else str(value)
+            )
+        )
+        st.table(display_table)
+
+        chart_years = [current_year - 1, current_year]
+        chart_df = base_filtered[base_filtered["Año"].isin(chart_years)].copy()
+        if prod_only:
+            chart_df = self.filter.filter_production_environment(chart_df)
+        if not chart_df.empty:
+            self.chart_renderer.render_trend_chart(chart_df, "Estado", None)
+
+    def _render_modulo_section(
+        self, base_filtered: pd.DataFrame, selected_year: Optional[int], prod_only: bool
+    ) -> None:
         """Render modulo (module) analysis section."""
         st.subheader("KPI - Módulo")
-        if filtered_prod.empty:
+        current_year = selected_year or pd.Timestamp.today().year
+        years = [current_year - 1, current_year]
+
+        tables = []
+        for year in years:
+            year_df = self.filter.filter_by_year(base_filtered, year)
+            if prod_only:
+                year_df = self.filter.filter_production_environment(year_df)
+            if year_df.empty:
+                st.info(f"ℹ️ No hay datos para el año {year}")
+                continue
+            pivot = self.table_builder.build_pivot_table(year_df, "Modulo", "Sin módulo")
+            if "Total" in pivot.index:
+                total_row = pivot.loc[["Total"]]
+                pivot = pivot.drop(index="Total").sort_values(by="Total", ascending=False)
+                pivot = pd.concat([pivot, total_row])
+            else:
+                pivot = pivot.sort_values(by="Total", ascending=False)
+            year_row = pd.DataFrame(
+                [{col: pd.NA for col in pivot.columns}],
+                index=[f"AÑO {year}"],
+            )
+            year_row.index.name = pivot.index.name
+            tables.extend([year_row, pivot])
+
+        if not tables:
             st.warning("No hay datos para KPI - Módulo con los filtros seleccionados.")
             return
-        pivot = self.table_builder.build_pivot_table(filtered_prod, "Modulo", "Sin módulo")
-        if "Total" in pivot.index:
-            total_row = pivot.loc[["Total"]]
-            pivot = pivot.drop(index="Total").sort_values(by="Total", ascending=False)
-            pivot = pd.concat([pivot, total_row])
-        else:
-            pivot = pivot.sort_values(by="Total", ascending=False)
-        st.dataframe(pivot, use_container_width=True)
-    
-    def _render_ambiente_section(self, filtered: pd.DataFrame, selected_year: Optional[int]) -> None:
+
+        combined_table = pd.concat(tables)
+        combined_table.index.name = "Modulo"
+        combined_table[combined_table.columns] = combined_table[combined_table.columns].apply(
+            pd.to_numeric, errors="coerce"
+        )
+        display_table = combined_table.apply(
+            lambda col: col.map(
+                lambda value: ""
+                if pd.isna(value)
+                else f"{value:,.0f}".replace(",", ".")
+                if isinstance(value, (int, float)) and not isinstance(value, bool)
+                else str(value)
+            )
+        )
+        st.table(display_table)
+
+    def _render_ambiente_section(
+        self, base_filtered: pd.DataFrame, selected_year: Optional[int]
+    ) -> None:
         """Render ambiente (environment) analysis section."""
         st.subheader("KPI - Ambiente")
-        if filtered.empty:
+        current_year = selected_year or pd.Timestamp.today().year
+        years = [current_year - 1, current_year]
+
+        tables = []
+        for year in years:
+            year_df = self.filter.filter_by_year(base_filtered, year)
+            if year_df.empty:
+                st.info(f"ℹ️ No hay datos para el año {year}")
+                continue
+            pivot = self.table_builder.build_pivot_table(
+                year_df, "Ambiente", "Sin ambiente"
+            )
+            year_row = pd.DataFrame(
+                [{col: pd.NA for col in pivot.columns}],
+                index=[f"AÑO {year}"],
+            )
+            year_row.index.name = pivot.index.name
+            tables.extend([year_row, pivot])
+
+        if not tables:
             st.warning("No hay datos para KPI - Ambiente con los filtros seleccionados.")
             return
-        pivot = self.table_builder.build_pivot_table(filtered, "Ambiente", "Sin ambiente")
-        st.dataframe(pivot, use_container_width=True)
-        self.chart_renderer.render_trend_chart(
-            filtered, "Ambiente", selected_year
+
+        combined_table = pd.concat(tables)
+        combined_table.index.name = "Ambiente"
+        combined_table[combined_table.columns] = combined_table[combined_table.columns].apply(
+            pd.to_numeric, errors="coerce"
         )
-    
-    def _render_resolucion_section(self, filtered_prod: pd.DataFrame, df: pd.DataFrame, selected_client: str, selected_year: Optional[int], selected_team: List[str]) -> None:
+        display_table = combined_table.apply(
+            lambda col: col.map(
+                lambda value: ""
+                if pd.isna(value)
+                else f"{value:,.0f}".replace(",", ".")
+                if isinstance(value, (int, float)) and not isinstance(value, bool)
+                else str(value)
+            )
+        )
+        st.table(display_table)
+
+        chart_years = [current_year - 1, current_year]
+        chart_df = base_filtered[base_filtered["Año"].isin(chart_years)].copy()
+        if not chart_df.empty:
+            self.chart_renderer.render_trend_chart(chart_df, "Ambiente", None)
+
+    def _render_resolucion_section(
+        self, base_filtered: pd.DataFrame, selected_year: Optional[int]
+    ) -> None:
         """Render resolucion (resolution) analysis section."""
-        st.subheader("KPI - SLA")
-        
-        # Build SLA data without year of creation filter
-        sla_base = self.filter.filter_by_client(df, selected_client)
-        sla_base = self.filter.filter_by_team(sla_base, selected_team)
-        sla_base = self.filter.filter_by_types(sla_base, ["Consulta de informacion", "Incidencia"])
-        sla_base = self.filter.filter_resolved_by_year(sla_base, selected_year)
-        sla_prod = self.filter.filter_production_environment(sla_base)
-        
-        if sla_prod.empty:
+        st.subheader("KPI - Service Level Agreement (SLA)")
+        current_year = selected_year or pd.Timestamp.today().year
+        years = [current_year - 1, current_year]
+
+        tables = []
+        for year in years:
+            sla_base = self.filter.filter_resolved_by_year(base_filtered, year)
+            sla_prod = self.filter.filter_production_environment(sla_base)
+            if sla_prod.empty:
+                st.info(f"ℹ️ No hay datos para el año {year}")
+                continue
+
+            sla_prod = sla_prod.copy()
+            sla_prod["Mes"] = pd.to_datetime(sla_prod["Hora de resolucion"], errors="coerce").dt.month
+
+            pivot = self.table_builder.build_pivot_table(
+                sla_prod, "Estado de resolucion", "Sin estado de resolución"
+            )
+            pivot = pivot.rename(
+                index={
+                    label: "Cumplido"
+                    for label in pivot.index
+                    if str(label).strip().lower() == "within sla"
+                }
+            )
+            pivot = pivot.rename(
+                index={
+                    label: "Incumplido"
+                    for label in pivot.index
+                    if str(label).strip().lower() == "sla violated"
+                }
+            )
+            pivot = self.table_builder.add_sla_percentage_row(pivot)
+            year_row = pd.DataFrame(
+                [{col: pd.NA for col in pivot.columns}],
+                index=[f"AÑO {year}"],
+            )
+            year_row.index.name = pivot.index.name
+            tables.extend([year_row, pivot])
+
+        if not tables:
             st.warning("No hay datos para KPI - SLA con los filtros seleccionados.")
             return
-        
-        # Create Mes column based on resolution date for SLA table
-        sla_prod = sla_prod.copy()
-        sla_prod["Mes"] = pd.to_datetime(sla_prod["Hora de resolucion"], errors="coerce").dt.month
-        
-        # Build pivot table from all resolved tickets in selected year
-        pivot = self.table_builder.build_pivot_table(
-            sla_prod, "Estado de resolucion", "Sin estado de resolución"
+
+        combined_table = pd.concat(tables)
+        combined_table.index.name = "Estado de resolucion"
+        formatted_table = combined_table.apply(
+            lambda col: col.map(
+                lambda value: ""
+                if pd.isna(value)
+                else f"{value:,.0f}"
+                if isinstance(value, (int, float)) and not isinstance(value, bool)
+                else str(value)
+            )
         )
-        pivot = pivot.rename(
-            index={
-                label: "Cumplido"
-                for label in pivot.index
-                if str(label).strip().lower() == "within sla"
-            }
-        )
-        pivot = pivot.rename(
-            index={
-                label: "Incumplido"
-                for label in pivot.index
-                if str(label).strip().lower() == "sla violated"
-            }
-        )
-        pivot = self.table_builder.add_sla_percentage_row(pivot)
-        st.dataframe(pivot, use_container_width=True)
-        self.chart_renderer.render_trend_chart(
-            sla_prod, "Estado de resolucion", selected_year
-        )
+        st.table(formatted_table)
+
+        chart_years = [current_year - 1, current_year]
+        chart_df = base_filtered.copy()
+        chart_df = chart_df[pd.to_datetime(chart_df["Hora de resolucion"], errors="coerce").dt.year.isin(chart_years)]
+        chart_df = self.filter.filter_production_environment(chart_df)
+        if not chart_df.empty:
+            chart_df = chart_df.copy()
+            chart_df["Periodo"] = (
+                pd.to_datetime(chart_df["Hora de resolucion"], errors="coerce")
+                .dt.to_period("M")
+                .dt.to_timestamp()
+            )
+            self.chart_renderer.render_trend_chart(
+                chart_df, "Estado de resolucion", None
+            )

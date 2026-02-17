@@ -54,3 +54,4 @@ class AppConfig:
         
         if self.PROD_ENVIRONMENTS is None:
             self.PROD_ENVIRONMENTS = {"prod (cliente)", "produccion", "produccion ", "prod"}
+

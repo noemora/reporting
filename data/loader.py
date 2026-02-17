@@ -12,3 +12,4 @@ class ExcelDataLoader:
     def load(file_bytes: bytes) -> pd.DataFrame:
         """Load Excel file from bytes."""
         return pd.read_excel(io.BytesIO(file_bytes), engine="openpyxl")
+
