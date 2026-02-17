@@ -28,8 +28,17 @@ class TextNormalizer:
     def fix_mojibake(value: str) -> str:
         """Fix common mojibake sequences for Spanish accents."""
         replacements = {
-            "Ã¡": "á", "Ã©": "é", "Ã­": "í", "Ã³": "ó", "Ãº": "ú", "Ã±": "ñ",
-            "Ã"": "Ó", "Ãš": "Ú", "Ã": "Á", "Ã‰": "É", "Ã'": "Ñ",
+            "\xc3\xa1": "á",  # Ã¡ -> á
+            "\xc3\xa9": "é",  # Ã© -> é
+            "\xc3\xad": "í",  # Ã­ -> í
+            "\xc3\xb3": "ó",  # Ã³ -> ó
+            "\xc3\xba": "ú",  # Ãº -> ú
+            "\xc3\xb1": "ñ",  # Ã± -> ñ
+            "\xc3\x93": "Ó",  # Ã" -> Ó
+            "\xc3\x9a": "Ú",  # Ãš -> Ú
+            "\xc3\x81": "Á",  # Ã -> Á
+            "\xc3\x89": "É",  # Ã‰ -> É
+            "\xc3\x91": "Ñ",  # Ã' -> Ñ
         }
         for bad, good in replacements.items():
             value = value.replace(bad, good)
