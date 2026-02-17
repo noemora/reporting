@@ -1,22 +1,10 @@
-<!-- Use this file to provide workspace-specific custom instructions to Copilot. For more details, visit https://code.visualstudio.com/docs/copilot/copilot-customization#_use-a-githubcopilotinstructionsmd-file -->
-- [x] Verify that the copilot-instructions.md file in the .github directory is created.
+<!-- Instrucciones especificas para este workspace -->
 
-- [x] Clarify Project Requirements
-
-- [x] Scaffold the Project
-
-- [x] Customize the Project
-
-- [x] Install Required Extensions
-
-- [x] Compile the Project
-
-- [x] Create and Run Task
-
-- [x] Launch the Project
-
-- [x] Ensure Documentation is Complete
-
-- Work through each checklist item systematically.
-- Keep communication concise and focused.
-- Follow development best practices.
+- Proyecto: app de Streamlit para analisis de tickets y usabilidad (reporte comercial + logins).
+- Arquitectura: app.py coordina el flujo -> data (carga/validacion/preproceso) -> dashboard (orquesta secciones) -> services/ui (tablas y graficos).
+- Mantener la separacion de responsabilidades: nada de logica pesada en app.py.
+- Nuevas columnas o cambios de nombres: ajustar config/settings.py y, si aplica, data/validator.py.
+- Nuevos KPIs o secciones: implementar en dashboard/orchestrator.py y usar helpers en services/ y ui/.
+- UI en espanol, textos coherentes con el contexto del negocio.
+- Prefiere operaciones vectorizadas con pandas; evita bucles fila a fila salvo necesidad.
+- Documentacion: si cambia el flujo, archivos de entrada o estructura, actualizar README.md.

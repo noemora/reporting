@@ -1,33 +1,22 @@
 # Sistema de Informes Gerenciales de Tickets
 
-Aplicación en Streamlit para cargar archivos Excel de tickets, aplicar filtros interactivos y visualizar KPIs y gráficos gerenciales.
+Aplicacion en Streamlit para cargar el reporte comercial y un archivo de logins, aplicar filtros y mostrar KPIs, tablas y tendencias.
 
 ## Requisitos
 - Python 3.9+
 
-## Instalación
+## Instalacion
 1. Crear y activar un entorno virtual.
 2. Instalar dependencias:
    - `pip install -r requirements.txt`
 
-## Ejecución
+## Ejecucion
 - `streamlit run app.py`
 
-## Estructura de carpetas
-- data/ : Archivos de datos (opcional).
-- src/ : Módulos auxiliares (opcional).
-- assets/ : Recursos estáticos (logos, imágenes).
-- app.py : Aplicación principal.
-- requirements.txt : Dependencias.
+## Archivos de entrada
+### Reporte comercial
+Se espera un Excel con las columnas (los nombres se normalizan automaticamente):
 
-## Ejemplos de uso
-1. Ejecuta la app.
-2. Carga un archivo Excel con las columnas requeridas.
-3. Ajusta los filtros del panel izquierdo.
-4. Revisa KPIs, gráficos y tabla resumen.
-5. Descarga los datos filtrados desde la opción de exportación.
-
-## Columnas requeridas
 - ID del ticket, Asunto, Estado, Prioridad, Origen, Tipo
 - Agente, Grupo, Hora de creacion, Tiempo de vencimiento
 - Hora de resolucion, Hora de cierre, Hora de Ultima actualizacion
@@ -38,5 +27,34 @@ Aplicación en Streamlit para cargar archivos Excel de tickets, aplicar filtros 
 - Resultados de la encuesta, Habilidad, Tipo de asociacion
 - El estado de cada respuesta, Producto, Ambiente
 - Team Asignado, Responsable Tk, Url afectada, Fecha Estimada
-- Esfuerzo en Horas, Modulo, Nombre completo
-- ID del contacto, Nombre de la compañía
+- Esfuerzo en Horas, Modulo, Nombre completo, ID del contacto
+
+Columnas clave para calculos: ID del ticket, Estado, Hora de creacion, Estado de resolucion, Modulo, Ambiente, Grupo, Tipo.
+
+### Logins
+Se espera un Excel con columnas (insensible a mayusculas/espacios):
+
+- cliente
+- logins
+- mes
+- año
+
+## Uso
+1. Ejecuta la app.
+2. Carga ambos archivos.
+3. Selecciona filtros por ano, cliente y team asignado.
+4. Revisa KPIs, tablas y tendencias.
+
+## Estructura del proyecto
+- app.py: punto de entrada y coordinacion de componentes.
+- config/: configuracion central (columnas requeridas, meses, estados resueltos).
+- data/: carga, validacion, normalizacion, preprocesamiento y filtros.
+- dashboard/: orquestacion de secciones y KPIs.
+- services/: builders para tablas y calculos de apoyo.
+- ui/: render de graficos y componentes de interfaz.
+- utils/: utilidades de normalizacion de texto.
+
+## Configuracion
+- Actualiza los catalogos en config/settings.py para columnas, meses, estados resueltos y ambientes productivos.
+- Si agregas KPIs, ajusta dashboard/orchestrator.py y los helpers de services/ y ui/.
+
