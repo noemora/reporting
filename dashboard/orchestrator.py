@@ -7,6 +7,7 @@ from config import AppConfig
 from data import DataFilter
 from services import TableBuilder
 from ui import ChartRenderer, UIRenderer
+from utils import TextNormalizer
 
 
 class DashboardOrchestrator:
@@ -168,12 +169,17 @@ class DashboardOrchestrator:
                 col_anio: "anio",
             }
         ).copy()
+        usage["cliente_original"] = usage["cliente"].astype(str)
+        usage["cliente_display"] = usage["cliente_original"].map(TextNormalizer.remove_accents)
+        usage["cliente_norm"] = usage["cliente_original"].map(TextNormalizer.normalize_column_name)
+        usage["cliente"] = usage["cliente_display"]
         usage["anio"] = pd.to_numeric(usage["anio"], errors="coerce")
         usage["logins"] = pd.to_numeric(usage["logins"], errors="coerce").fillna(0)
-        usage["Cliente"] = usage["cliente"].astype(str)
+        usage["Cliente"] = usage["cliente_display"]
 
         if selected_client and selected_client != "Todos":
-            usage = usage[usage["cliente"] == selected_client]
+            selected_client_norm = TextNormalizer.normalize_column_name(selected_client)
+            usage = usage[usage["cliente_norm"] == selected_client_norm]
 
         if usage.empty:
             st.info("No hay datos de logins para los filtros seleccionados.")
@@ -336,6 +342,68 @@ class DashboardOrchestrator:
             )
         )
         st.table(display_table)
+
+        chart_years = [current_year - 1, current_year]
+        chart_df = base_filtered[base_filtered["Año"].isin(chart_years)].copy()
+        chart_df = self.filter.filter_production_environment(chart_df)
+        if not chart_df.empty:
+            today = pd.Timestamp.today()
+            all_months = []
+            for year in chart_years:
+                end_month = 12 if year != today.year else today.month
+                all_months.extend(
+                    pd.date_range(
+                        start=f"{int(year)}-01-01",
+                        end=f"{int(year)}-{int(end_month):02d}-01",
+                        freq="MS",
+                    )
+                )
+            all_months = pd.to_datetime(all_months)
+
+            created_base = chart_df.dropna(subset=["Hora de creacion"]).copy()
+            created_base["Periodo"] = (
+                created_base["Hora de creacion"].dt.to_period("M").dt.to_timestamp()
+            )
+            created_counts = (
+                created_base.groupby("Periodo")["ID del ticket"].nunique()
+                .reindex(all_months, fill_value=0)
+            )
+
+            resolved_mask = (
+                chart_df["Estado de resolucion"].astype(str).str.lower().isin(self.config.RESOLVED_STATES)
+                | chart_df["Estado"].astype(str).str.lower().isin(self.config.RESOLVED_STATES)
+            )
+            resolved_base = chart_df[resolved_mask].copy()
+            resolved_base["Periodo"] = (
+                pd.to_datetime(resolved_base["Hora de resolucion"], errors="coerce")
+                .dt.to_period("M")
+                .dt.to_timestamp()
+            )
+            resolved_counts = (
+                resolved_base.groupby("Periodo")["ID del ticket"].nunique()
+                .reindex(all_months, fill_value=0)
+            )
+
+            flow_chart = pd.concat(
+                [
+                    pd.DataFrame(
+                        {
+                            "Periodo": all_months,
+                            "Tipo": "Creados por cliente",
+                            "Tickets": created_counts.values,
+                        }
+                    ),
+                    pd.DataFrame(
+                        {
+                            "Periodo": all_months,
+                            "Tipo": "Resueltos por Soporte N5",
+                            "Tickets": resolved_counts.values,
+                        }
+                    ),
+                ],
+                ignore_index=True,
+            )
+            self.chart_renderer.render_flow_chart(flow_chart)
     
     def _render_team_section(
         self, base_filtered: pd.DataFrame, selected_year: Optional[int], prod_only: bool

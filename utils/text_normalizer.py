@@ -50,6 +50,13 @@ class TextNormalizer:
         cleaned = data.astype(str).str.strip()
         cleaned = cleaned.replace("nan", pd.NA)
         return cleaned
+
+    @staticmethod
+    def remove_accents(value: str) -> str:
+        """Remove accents while preserving original casing and spacing."""
+        value = TextNormalizer.fix_mojibake(str(value))
+        normalized = unicodedata.normalize("NFKD", value)
+        return "".join(ch for ch in normalized if not unicodedata.combining(ch))
     
     @staticmethod
     def normalize_environment(value: str) -> str:
