@@ -36,6 +36,13 @@ class ChartRenderer:
 
         st.plotly_chart(fig, width="stretch")
     
+    def render_flow_chart(self, flow: pd.DataFrame) -> None:
+        """Render a monthly flow chart for created vs resolved tickets."""
+        if flow.empty:
+            return
+        fig = self._create_flow_line_chart(flow)
+        st.plotly_chart(fig, width="stretch")
+    
     def _prepare_trend_data(
         self, df: pd.DataFrame, category_col: str, selected_year: Optional[int]
     ) -> pd.DataFrame:
@@ -208,6 +215,38 @@ class ChartRenderer:
         fig.update_traces(textposition="top center", texttemplate="%{y}")
 
         tick_vals = sorted(trend["Periodo"].unique())
+        tick_text = []
+        for val in tick_vals:
+            ts = pd.Timestamp(val)
+            month_name = self.config.MONTH_NAMES_ES.get(ts.month, "")
+            year_suffix = f"{ts.year % 100:02d}"
+            tick_text.append(f"{month_name}/{year_suffix}")
+        fig.update_layout(
+            height=350,
+            margin=dict(l=20, r=20, t=40, b=20),
+            xaxis=dict(tickmode="array", tickvals=tick_vals, ticktext=tick_text),
+        )
+
+        return fig
+
+    def _create_flow_line_chart(self, flow: pd.DataFrame) -> px.line:
+        """Create a plotly line chart for ticket flow."""
+        fig = px.line(
+            flow,
+            x="Periodo",
+            y="Tickets",
+            color="Tipo",
+            markers=True,
+            text="Tickets",
+            labels={
+                "Periodo": "Mes",
+                "Tickets": "Tickets",
+                "Tipo": "Flujo",
+            },
+        )
+        fig.update_traces(textposition="top center", texttemplate="%{y}")
+
+        tick_vals = sorted(flow["Periodo"].unique())
         tick_text = []
         for val in tick_vals:
             ts = pd.Timestamp(val)

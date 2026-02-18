@@ -42,7 +42,7 @@ Se espera un Excel con columnas (insensible a mayusculas/espacios):
 ## Uso
 1. Ejecuta la app.
 2. Carga ambos archivos.
-3. Selecciona filtros por ano, cliente y team asignado.
+3. Selecciona filtros por año, cliente y team asignado.
 4. Revisa KPIs, tablas y tendencias.
 
 ## Estructura del proyecto
