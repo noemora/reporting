@@ -18,30 +18,33 @@ class ChartRenderer:
         df: pd.DataFrame,
         category_col: str,
         selected_year: Optional[int],
-    ) -> None:
+    ) -> px.line:
         """Render a monthly trend chart with labels."""
         trend = self._prepare_trend_data(df, category_col, selected_year)
         fig = self._create_line_chart(trend, category_col)
         
         st.plotly_chart(fig, width="stretch")
+        return fig
 
     def render_usage_trend_chart(
         self,
         usage: pd.DataFrame,
         selected_year: Optional[int],
-    ) -> None:
+    ) -> px.line:
         """Render a monthly logins trend chart with labels."""
         trend = self._prepare_usage_trend_data(usage, selected_year)
         fig = self._create_usage_line_chart(trend)
 
         st.plotly_chart(fig, width="stretch")
+        return fig
     
-    def render_flow_chart(self, flow: pd.DataFrame) -> None:
+    def render_flow_chart(self, flow: pd.DataFrame) -> Optional[px.line]:
         """Render a monthly flow chart for created vs resolved tickets."""
         if flow.empty:
-            return
+            return None
         fig = self._create_flow_line_chart(flow)
         st.plotly_chart(fig, width="stretch")
+        return fig
     
     def _prepare_trend_data(
         self, df: pd.DataFrame, category_col: str, selected_year: Optional[int]
