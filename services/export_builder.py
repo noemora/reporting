@@ -16,7 +16,7 @@ class ExportBuilder:
         tables: List[Tuple[str, pd.DataFrame]],
         charts: Optional[List[Tuple[str, Any]]] = None,
     ) -> bytes:
-        """Build an Excel file with one sheet per table and chart in the same sheet."""
+        """Build an Excel file in a single sheet with vertical table/chart blocks."""
         from openpyxl.drawing.image import Image as XLImage
 
         output = BytesIO()
@@ -25,18 +25,38 @@ class ExportBuilder:
 
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
             used_names = set()
+            sheet_name = ExportBuilder._safe_sheet_name("Resumen KPI", used_names)
+            used_names.add(sheet_name)
+            current_start_row = 0
+
             for raw_name, table in tables:
                 if table is None or table.empty:
                     continue
-                sheet_name = ExportBuilder._safe_sheet_name(raw_name, used_names)
-                used_names.add(sheet_name)
+
                 export_table = table.reset_index().copy()
-                export_table.to_excel(writer, sheet_name=sheet_name, index=False)
+                section_title = pd.DataFrame([[raw_name]])
+                section_title.to_excel(
+                    writer,
+                    sheet_name=sheet_name,
+                    startrow=current_start_row,
+                    startcol=0,
+                    index=False,
+                    header=False,
+                )
+
+                table_start_row = current_start_row + 1
+                export_table.to_excel(
+                    writer,
+                    sheet_name=sheet_name,
+                    startrow=table_start_row,
+                    startcol=0,
+                    index=False,
+                )
 
                 ws = writer.book[sheet_name]
-                header_row = 1
-                data_start_row = 2
-                data_end_row = len(export_table) + 1
+                header_row = table_start_row + 1
+                data_start_row = header_row + 1
+                data_end_row = table_start_row + len(export_table) + 1
                 start_col = 1
                 end_col = export_table.shape[1]
                 ExportBuilder._coerce_table_cell_types(
@@ -57,11 +77,12 @@ class ExportBuilder:
 
                 chart_idx = ExportBuilder._pick_chart_index(raw_name, chart_entries, consumed_chart_indexes)
                 if chart_idx is None:
+                    current_start_row = data_end_row + 2
                     continue
 
                 chart_name, chart_fig = chart_entries[chart_idx]
                 consumed_chart_indexes.add(chart_idx)
-                start_row = len(export_table) + 4
+                start_row = data_end_row + 2
                 ws[f"A{start_row}"] = f"Gráfico: {chart_name}"
 
                 image_bytes = ExportBuilder._figure_to_png_bytes(chart_fig)
@@ -71,11 +92,16 @@ class ExportBuilder:
                     image.width = 1100
                     image.height = 400
                     ws.add_image(image, f"A{start_row + 1}")
+                    current_start_row = start_row + 24
                     continue
 
                 native_ok = ExportBuilder._add_native_excel_chart(ws, chart_fig, start_row + 1)
                 if not native_ok:
                     ws[f"A{start_row + 1}"] = "No se pudo generar este gráfico en Excel."
+                    current_start_row = start_row + 3
+                    continue
+
+                current_start_row = start_row + 20
 
         output.seek(0)
         return output.getvalue()
@@ -105,6 +131,9 @@ class ExportBuilder:
             bottomMargin=10 * mm,
         )
         styles = getSampleStyleSheet()
+        chart_entries = list(charts or [])
+        consumed_chart_indexes: set[int] = set()
+        page_width = landscape(A4)[0] - (20 * mm)
         story = [
             Paragraph(title, styles["Title"]),
             Spacer(1, 4 * mm),
@@ -123,11 +152,9 @@ class ExportBuilder:
             rows = export_table.values.tolist()
             matrix = [header] + rows
 
-            col_count = max(len(header), 1)
-            page_width = landscape(A4)[0] - (20 * mm)
-            col_width = page_width / col_count
+            col_widths = ExportBuilder._build_pdf_column_widths(header, rows, page_width)
 
-            pdf_table = Table(matrix, repeatRows=1, colWidths=[col_width] * col_count)
+            pdf_table = Table(matrix, repeatRows=1, colWidths=col_widths)
             pdf_table.setStyle(
                 TableStyle(
                     [
@@ -141,33 +168,21 @@ class ExportBuilder:
                 )
             )
             story.append(pdf_table)
-            story.append(Spacer(1, 5 * mm))
 
-        max_charts_in_pdf = 6
-        valid_charts = [(name, fig) for name, fig in (charts or []) if fig is not None][:max_charts_in_pdf]
-        if valid_charts:
-            story.append(Paragraph("Gráficos", styles["Heading2"]))
-            story.append(Spacer(1, 3 * mm))
-            for chart_name, chart_fig in valid_charts:
-                story.append(Paragraph(chart_name, styles["Heading3"]))
+            chart_idx = ExportBuilder._pick_chart_index(name, chart_entries, consumed_chart_indexes)
+            if chart_idx is not None:
+                chart_name, chart_fig = chart_entries[chart_idx]
+                consumed_chart_indexes.add(chart_idx)
+                story.append(Spacer(1, 2 * mm))
+                story.append(Paragraph(f"Gráfico: {chart_name}", styles["Normal"]))
                 chart_bytes = ExportBuilder._figure_to_pdf_image_bytes(chart_fig)
                 if chart_bytes is None:
                     story.append(Paragraph("No se pudo renderizar este gráfico.", styles["Normal"]))
-                    story.append(Spacer(1, 4 * mm))
-                    continue
+                else:
+                    chart_image = RLImage(BytesIO(chart_bytes), width=240 * mm, height=82 * mm)
+                    story.append(chart_image)
 
-                chart_image = RLImage(BytesIO(chart_bytes), width=240 * mm, height=82 * mm)
-                story.append(chart_image)
-                story.append(Spacer(1, 5 * mm))
-
-            if charts and len(charts) > max_charts_in_pdf:
-                story.append(
-                    Paragraph(
-                        f"Nota: se incluyeron solo los primeros {max_charts_in_pdf} gráficos para mantener un tamaño estable del PDF.",
-                        styles["Normal"],
-                    )
-                )
-                story.append(Spacer(1, 3 * mm))
+            story.append(Spacer(1, 6 * mm))
 
         doc.build(story)
         output.seek(0)
@@ -232,20 +247,71 @@ class ExportBuilder:
         charts: List[Tuple[str, Any]],
         consumed_indexes: set[int],
     ) -> Optional[int]:
-        """Pick the most suitable chart index for a table name."""
-        tokens = ExportBuilder._name_tokens(table_name)
+        """Pick chart index using strict deterministic name matching."""
+        normalized_table = ExportBuilder._normalized_name(table_name)
 
         for idx, (chart_name, chart_fig) in enumerate(charts):
             if idx in consumed_indexes or chart_fig is None:
                 continue
-            chart_tokens = ExportBuilder._name_tokens(chart_name)
-            if tokens.intersection(chart_tokens):
+            if ExportBuilder._normalized_name(chart_name) == normalized_table:
                 return idx
 
-        for idx, (_, chart_fig) in enumerate(charts):
-            if idx not in consumed_indexes and chart_fig is not None:
-                return idx
         return None
+
+    @staticmethod
+    def _normalized_name(name: str) -> str:
+        """Normalize a name for strict and deterministic matching."""
+        normalized = str(name).lower().strip()
+        replacements = {
+            "á": "a",
+            "é": "e",
+            "í": "i",
+            "ó": "o",
+            "ú": "u",
+        }
+        for source, target in replacements.items():
+            normalized = normalized.replace(source, target)
+        normalized = re.sub(r"\s+", " ", normalized)
+        return normalized
+
+    @staticmethod
+    def _build_pdf_column_widths(
+        header: List[Any],
+        rows: List[List[Any]],
+        total_width: float,
+    ) -> List[float]:
+        """Build column widths proportionally to content, constrained to page width."""
+        col_count = max(len(header), 1)
+        if col_count == 1:
+            return [total_width]
+
+        sample_rows = rows[:300]
+        weights: List[float] = []
+        for col_idx in range(col_count):
+            header_len = len(str(header[col_idx])) if col_idx < len(header) else 0
+            max_len = header_len
+            for row in sample_rows:
+                if col_idx >= len(row):
+                    continue
+                text = "" if row[col_idx] is None else str(row[col_idx]).replace("\n", " ")
+                max_len = max(max_len, min(len(text), 60))
+            weights.append(float(max(max_len, 6)))
+
+        total_weight = sum(weights)
+        if total_weight <= 0:
+            return [total_width / col_count] * col_count
+
+        min_width = 35.0
+        max_width = 200.0
+        scaled = [total_width * (weight / total_weight) for weight in weights]
+        bounded = [min(max(width, min_width), max_width) for width in scaled]
+
+        bounded_sum = sum(bounded)
+        if bounded_sum <= 0:
+            return [total_width / col_count] * col_count
+
+        factor = total_width / bounded_sum
+        return [width * factor for width in bounded]
 
     @staticmethod
     def _name_tokens(name: str) -> set[str]:

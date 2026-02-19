@@ -53,7 +53,12 @@ class DashboardOrchestrator:
             if incidents_table is not None:
                 export_tables.append(("Consulta e Incidencias - Flujo", incidents_table))
 
-            team_table = self._render_team_section(base_filtered, selected_year, prod_only=True)
+            team_table = self._render_team_section(
+                base_filtered,
+                selected_year,
+                prod_only=True,
+                export_chart_label="Consulta e Incidencias - Team",
+            )
             if team_table is not None:
                 export_tables.append(("Consulta e Incidencias - Team", team_table))
 
@@ -65,11 +70,20 @@ class DashboardOrchestrator:
             if modulo_table is not None:
                 export_tables.append(("Consulta e Incidencias - Modulo", modulo_table))
 
-            ambiente_table = self._render_ambiente_section(base_filtered, selected_year)
+            ambiente_table = self._render_ambiente_section(
+                base_filtered,
+                selected_year,
+                export_chart_label="Consulta e Incidencias - Ambiente",
+            )
             if ambiente_table is not None:
                 export_tables.append(("Consulta e Incidencias - Ambiente", ambiente_table))
 
-            estado_table = self._render_estado_section(base_filtered, selected_year, prod_only=True)
+            estado_table = self._render_estado_section(
+                base_filtered,
+                selected_year,
+                prod_only=True,
+                export_chart_label="Consulta e Incidencias - Estado",
+            )
             if estado_table is not None:
                 export_tables.append(("Consulta e Incidencias - Estado", estado_table))
 
@@ -83,7 +97,12 @@ class DashboardOrchestrator:
         if cambio_base.empty:
             st.warning("No hay datos para Solicitudes de Cambio con los filtros seleccionados.")
         else:
-            team_cambio = self._render_team_section(cambio_base, selected_year, prod_only=False)
+            team_cambio = self._render_team_section(
+                cambio_base,
+                selected_year,
+                prod_only=False,
+                export_chart_label="Cambios - Team",
+            )
             if team_cambio is not None:
                 export_tables.append(("Cambios - Team", team_cambio))
 
@@ -91,7 +110,12 @@ class DashboardOrchestrator:
             if modulo_cambio is not None:
                 export_tables.append(("Cambios - Modulo", modulo_cambio))
 
-            estado_cambio = self._render_estado_section(cambio_base, selected_year, prod_only=False)
+            estado_cambio = self._render_estado_section(
+                cambio_base,
+                selected_year,
+                prod_only=False,
+                export_chart_label="Cambios - Estado",
+            )
             if estado_cambio is not None:
                 export_tables.append(("Cambios - Estado", estado_cambio))
 
@@ -105,7 +129,12 @@ class DashboardOrchestrator:
         if internos_base.empty:
             st.warning("No hay datos para Solicitudes de Mejoras Técnicas con los filtros seleccionados.")
         else:
-            team_interno = self._render_team_section(internos_base, selected_year, prod_only=False)
+            team_interno = self._render_team_section(
+                internos_base,
+                selected_year,
+                prod_only=False,
+                export_chart_label="Internos - Team",
+            )
             if team_interno is not None:
                 export_tables.append(("Internos - Team", team_interno))
 
@@ -113,7 +142,12 @@ class DashboardOrchestrator:
             if modulo_interno is not None:
                 export_tables.append(("Internos - Modulo", modulo_interno))
 
-            estado_interno = self._render_estado_section(internos_base, selected_year, prod_only=False)
+            estado_interno = self._render_estado_section(
+                internos_base,
+                selected_year,
+                prod_only=False,
+                export_chart_label="Internos - Estado",
+            )
             if estado_interno is not None:
                 export_tables.append(("Internos - Estado", estado_interno))
 
@@ -271,7 +305,7 @@ class DashboardOrchestrator:
 
             year_row = pd.DataFrame(
                 [{col: pd.NA for col in pivot.columns}],
-                index=[f"AÑO {year}"],
+                index=[f"~~ AÑO {year} ~~"],
             )
             year_row.index.name = pivot.index.name
             tables.extend([year_row, pivot])
@@ -300,7 +334,7 @@ class DashboardOrchestrator:
         usage_chart = usage[usage["anio"].isin(years)].copy()
         if not usage_chart.empty:
             usage_fig = self.chart_renderer.render_usage_trend_chart(usage_chart, None)
-            self._export_charts.append(("Usabilidad - Actividad en la plataforma", usage_fig))
+            self._export_charts.append(("Usabilidad - Actividad", usage_fig))
 
         return display_table
     
@@ -338,24 +372,43 @@ class DashboardOrchestrator:
             f"Team Asignado: {team_label}"
         )
 
-        signature_parts = [year_label, selected_client or "Todos", team_label, str(len(export_tables))]
-        for table_name, table in export_tables:
-            numeric_sum = pd.to_numeric(table.stack(), errors="coerce").fillna(0).sum()
-            signature_parts.append(f"{table_name}|{table.shape[0]}|{table.shape[1]}|{numeric_sum:.2f}")
-        export_signature = "||".join(signature_parts)
-
         cache = st.session_state.setdefault("export_cache", {})
-        if cache.get("signature") != export_signature:
-            cache["signature"] = export_signature
-            cache["excel_bytes"] = None
-            cache["pdf_bytes"] = None
+        cache.setdefault("busy", False)
+        cache.setdefault("pending_action", None)
+        is_busy = bool(cache.get("busy"))
 
         include_charts = st.toggle(
             "Incluir gráficos en exportación",
             value=False,
             help="Activado: incluye gráficos (consume más memoria, especialmente en PDF). Desactivado: solo tablas (más estable y rápido).",
+            disabled=is_busy,
         )
         chart_payload = self._export_charts if include_charts else None
+
+        signature_parts = [
+            year_label,
+            selected_client or "Todos",
+            team_label,
+            str(len(export_tables)),
+            f"include_charts={int(include_charts)}",
+        ]
+        for table_name, table in export_tables:
+            numeric_sum = pd.to_numeric(table.stack(), errors="coerce").fillna(0).sum()
+            signature_parts.append(f"{table_name}|{table.shape[0]}|{table.shape[1]}|{numeric_sum:.2f}")
+        if include_charts:
+            signature_parts.append(f"charts_count={len(self._export_charts)}")
+            for chart_name, chart_fig in self._export_charts:
+                signature_parts.append(f"chart={chart_name}|fig={int(chart_fig is not None)}")
+        export_signature = "||".join(signature_parts)
+        excel_signature = f"{export_signature}||format=excel||v=2"
+        pdf_signature = f"{export_signature}||format=pdf||v=2"
+
+        if cache.get("excel_signature") != excel_signature:
+            cache["excel_signature"] = excel_signature
+            cache["excel_bytes"] = None
+        if cache.get("pdf_signature") != pdf_signature:
+            cache["pdf_signature"] = pdf_signature
+            cache["pdf_bytes"] = None
 
         safe_client = TextNormalizer.normalize_column_name(selected_client or "todos").replace(" ", "_")
         safe_year = year_label.replace(" ", "_")
@@ -363,13 +416,15 @@ class DashboardOrchestrator:
 
         col1, col2 = st.columns(2)
         with col1:
-            if cache.get("excel_bytes") is None:
-                if st.button("Preparar Excel", use_container_width=True):
-                    with st.spinner("Generando archivo Excel..."):
-                        cache["excel_bytes"] = self.export_builder.build_excel_bytes(
-                            export_tables,
-                            charts=chart_payload,
-                        )
+            excel_ready = (
+                cache.get("excel_bytes") is not None
+                and cache.get("excel_signature") == excel_signature
+            )
+            if not excel_ready:
+                if st.button("Preparar Excel", use_container_width=True, disabled=is_busy):
+                    cache["busy"] = True
+                    cache["pending_action"] = "excel"
+                    st.rerun()
             else:
                 st.download_button(
                     "Descargar Excel",
@@ -377,21 +432,19 @@ class DashboardOrchestrator:
                     file_name=f"{filename_base}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True,
+                    disabled=is_busy,
                 )
 
         with col2:
-            if cache.get("pdf_bytes") is None:
-                if st.button("Preparar PDF", use_container_width=True):
-                    try:
-                        with st.spinner("Generando archivo PDF..."):
-                            cache["pdf_bytes"] = self.export_builder.build_pdf_bytes(
-                                export_tables,
-                                title="Informes Gerenciales de Tickets",
-                                filters_text=filters_text,
-                                charts=chart_payload,
-                            )
-                    except ImportError:
-                        st.info("Para exportar PDF instala dependencias con: pip install -r requirements.txt")
+            pdf_ready = (
+                cache.get("pdf_bytes") is not None
+                and cache.get("pdf_signature") == pdf_signature
+            )
+            if not pdf_ready:
+                if st.button("Preparar PDF", use_container_width=True, disabled=is_busy):
+                    cache["busy"] = True
+                    cache["pending_action"] = "pdf"
+                    st.rerun()
             else:
                 st.download_button(
                     "Descargar PDF",
@@ -399,7 +452,32 @@ class DashboardOrchestrator:
                     file_name=f"{filename_base}.pdf",
                     mime="application/pdf",
                     use_container_width=True,
+                    disabled=is_busy,
                 )
+
+        pending_action = cache.get("pending_action")
+        if cache.get("busy") and pending_action in {"excel", "pdf"}:
+            try:
+                if pending_action == "excel":
+                    with st.spinner("Generando archivo Excel..."):
+                        cache["excel_bytes"] = self.export_builder.build_excel_bytes(
+                            export_tables,
+                            charts=chart_payload,
+                        )
+                else:
+                    with st.spinner("Generando archivo PDF..."):
+                        cache["pdf_bytes"] = self.export_builder.build_pdf_bytes(
+                            export_tables,
+                            title="Informes Gerenciales de Tickets",
+                            filters_text=filters_text,
+                            charts=chart_payload,
+                        )
+            except ImportError:
+                st.info("Para exportar PDF instala dependencias con: pip install -r requirements.txt")
+            finally:
+                cache["busy"] = False
+                cache["pending_action"] = None
+            st.rerun()
     
     def _render_incidents_table(
         self, base_filtered: pd.DataFrame, selected_year: Optional[int]
@@ -449,7 +527,7 @@ class DashboardOrchestrator:
             table = self.table_builder.build_monthly_counts_table(created_counts, resolved_counts)
             year_row = pd.DataFrame(
                 [{col: pd.NA for col in table.columns}],
-                index=[f"AÑO {year}"],
+                index=[f"~~ AÑO {year} ~~"],
             )
             tables.extend([year_row, table])
 
@@ -535,12 +613,16 @@ class DashboardOrchestrator:
             )
             flow_fig = self.chart_renderer.render_flow_chart(flow_chart)
             if flow_fig is not None:
-                self._export_charts.append(("KPI - Flujo de tickets", flow_fig))
+                self._export_charts.append(("Consulta e Incidencias - Flujo", flow_fig))
 
         return display_table
     
     def _render_team_section(
-        self, base_filtered: pd.DataFrame, selected_year: Optional[int], prod_only: bool
+        self,
+        base_filtered: pd.DataFrame,
+        selected_year: Optional[int],
+        prod_only: bool,
+        export_chart_label: Optional[str] = None,
     ) -> Optional[pd.DataFrame]:
         """Render team asignado analysis section."""
         st.subheader("KPI - Team Asignado")
@@ -560,7 +642,7 @@ class DashboardOrchestrator:
             )
             year_row = pd.DataFrame(
                 [{col: pd.NA for col in pivot.columns}],
-                index=[f"AÑO {year}"],
+                index=[f"~~ AÑO {year} ~~"],
             )
             year_row.index.name = pivot.index.name
             tables.extend([year_row, pivot])
@@ -590,14 +672,21 @@ class DashboardOrchestrator:
         if prod_only:
             chart_df = self.filter.filter_production_environment(chart_df)
         if not chart_df.empty:
-            self.chart_renderer.render_trend_chart(
+            team_fig = self.chart_renderer.render_trend_chart(
                 chart_df, "Team Asignado", None
             )
+            if team_fig is not None:
+                chart_label = export_chart_label or "KPI - Team Asignado"
+                self._export_charts.append((chart_label, team_fig))
 
         return display_table
 
     def _render_estado_section(
-        self, base_filtered: pd.DataFrame, selected_year: Optional[int], prod_only: bool
+        self,
+        base_filtered: pd.DataFrame,
+        selected_year: Optional[int],
+        prod_only: bool,
+        export_chart_label: Optional[str] = None,
     ) -> Optional[pd.DataFrame]:
         """Render estado (status) analysis section."""
         st.subheader("KPI - Estado")
@@ -615,7 +704,7 @@ class DashboardOrchestrator:
             pivot = self.table_builder.build_pivot_table(year_df, "Estado", "Sin estado")
             year_row = pd.DataFrame(
                 [{col: pd.NA for col in pivot.columns}],
-                index=[f"AÑO {year}"],
+                index=[f"~~ AÑO {year} ~~"],
             )
             year_row.index.name = pivot.index.name
             tables.extend([year_row, pivot])
@@ -646,8 +735,9 @@ class DashboardOrchestrator:
             chart_df = self.filter.filter_production_environment(chart_df)
         if not chart_df.empty:
             estado_fig = self.chart_renderer.render_trend_chart(chart_df, "Estado", None)
-            suffix = "(Productivo)" if prod_only else "(Todos los ambientes)"
-            self._export_charts.append((f"KPI - Estado {suffix}", estado_fig))
+            if estado_fig is not None:
+                chart_label = export_chart_label or "KPI - Estado"
+                self._export_charts.append((chart_label, estado_fig))
 
         return display_table
 
@@ -676,7 +766,7 @@ class DashboardOrchestrator:
                 pivot = pivot.sort_values(by="Total", ascending=False)
             year_row = pd.DataFrame(
                 [{col: pd.NA for col in pivot.columns}],
-                index=[f"AÑO {year}"],
+                index=[f"~~ AÑO {year} ~~"],
             )
             year_row.index.name = pivot.index.name
             tables.extend([year_row, pivot])
@@ -704,7 +794,10 @@ class DashboardOrchestrator:
         return display_table
 
     def _render_ambiente_section(
-        self, base_filtered: pd.DataFrame, selected_year: Optional[int]
+        self,
+        base_filtered: pd.DataFrame,
+        selected_year: Optional[int],
+        export_chart_label: Optional[str] = None,
     ) -> Optional[pd.DataFrame]:
         """Render ambiente (environment) analysis section."""
         st.subheader("KPI - Ambiente")
@@ -722,7 +815,7 @@ class DashboardOrchestrator:
             )
             year_row = pd.DataFrame(
                 [{col: pd.NA for col in pivot.columns}],
-                index=[f"AÑO {year}"],
+                index=[f"~~ AÑO {year} ~~"],
             )
             year_row.index.name = pivot.index.name
             tables.extend([year_row, pivot])
@@ -751,7 +844,9 @@ class DashboardOrchestrator:
         chart_df = base_filtered[base_filtered["Año"].isin(chart_years)].copy()
         if not chart_df.empty:
             ambiente_fig = self.chart_renderer.render_trend_chart(chart_df, "Ambiente", None)
-            self._export_charts.append(("KPI - Ambiente", ambiente_fig))
+            if ambiente_fig is not None:
+                chart_label = export_chart_label or "KPI - Ambiente"
+                self._export_charts.append((chart_label, ambiente_fig))
 
         return display_table
 
@@ -794,7 +889,7 @@ class DashboardOrchestrator:
             pivot = self.table_builder.add_sla_percentage_row(pivot)
             year_row = pd.DataFrame(
                 [{col: pd.NA for col in pivot.columns}],
-                index=[f"AÑO {year}"],
+                index=[f"~~ AÑO {year} ~~"],
             )
             year_row.index.name = pivot.index.name
             tables.extend([year_row, pivot])
@@ -830,6 +925,7 @@ class DashboardOrchestrator:
             sla_fig = self.chart_renderer.render_trend_chart(
                 chart_df, "Estado de resolucion", None
             )
-            self._export_charts.append(("KPI - SLA", sla_fig))
+            if sla_fig is not None:
+                self._export_charts.append(("Consulta e Incidencias - SLA", sla_fig))
 
         return formatted_table
