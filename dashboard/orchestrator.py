@@ -21,12 +21,22 @@ class DashboardOrchestrator:
         self.chart_renderer = ChartRenderer(config)
         self.ui_renderer = UIRenderer()
     
-    def render_dashboard(self, df: pd.DataFrame, usage_df: Optional[pd.DataFrame] = None) -> None:
-        """Render complete hybrid dashboard."""
+    def render_dashboard(
+        self,
+        df: pd.DataFrame,
+        usage_df: Optional[pd.DataFrame] = None,
+        dashboard_name: str = "Dashboard Soporte",
+        widget_prefix: str = "soporte",
+    ) -> None:
+        """Render dashboard according to selected dashboard type."""
         self._export_charts: List[Tuple[str, object]] = []
+        self._widget_prefix = widget_prefix
+        is_commercial_dashboard = dashboard_name == "Dashboard Comercial"
+
+        st.header(dashboard_name)
         # Render filters
         st.subheader("Filtros")
-        selected_year, selected_client, selected_team = self._render_filters(df)
+        selected_year, selected_client, selected_team = self._render_filters(df, widget_prefix)
         export_tables: List[Tuple[str, pd.DataFrame]] = []
 
         usage_table = self._render_usage_table(usage_df, selected_year, selected_client)
@@ -53,14 +63,16 @@ class DashboardOrchestrator:
             if incidents_table is not None:
                 export_tables.append(("Consulta e Incidencias - Flujo", incidents_table))
 
-            team_table = self._render_team_section(
-                base_filtered,
-                selected_year,
-                prod_only=True,
-                export_chart_label="Consulta e Incidencias - Team",
-            )
-            if team_table is not None:
-                export_tables.append(("Consulta e Incidencias - Team", team_table))
+            if not is_commercial_dashboard:
+                team_table = self._render_team_section(
+                    base_filtered,
+                    selected_year,
+                    prod_only=True,
+                    export_chart_label="Consulta e Incidencias - Team",
+                    chart_key_suffix="incidencias_team",
+                )
+                if team_table is not None:
+                    export_tables.append(("Consulta e Incidencias - Team", team_table))
 
             sla_table = self._render_resolucion_section(base_filtered, selected_year)
             if sla_table is not None:
@@ -70,19 +82,21 @@ class DashboardOrchestrator:
             if modulo_table is not None:
                 export_tables.append(("Consulta e Incidencias - Modulo", modulo_table))
 
-            ambiente_table = self._render_ambiente_section(
-                base_filtered,
-                selected_year,
-                export_chart_label="Consulta e Incidencias - Ambiente",
-            )
-            if ambiente_table is not None:
-                export_tables.append(("Consulta e Incidencias - Ambiente", ambiente_table))
+            if not is_commercial_dashboard:
+                ambiente_table = self._render_ambiente_section(
+                    base_filtered,
+                    selected_year,
+                    export_chart_label="Consulta e Incidencias - Ambiente",
+                )
+                if ambiente_table is not None:
+                    export_tables.append(("Consulta e Incidencias - Ambiente", ambiente_table))
 
             estado_table = self._render_estado_section(
                 base_filtered,
                 selected_year,
                 prod_only=True,
                 export_chart_label="Consulta e Incidencias - Estado",
+                chart_key_suffix="incidencias_estado",
             )
             if estado_table is not None:
                 export_tables.append(("Consulta e Incidencias - Estado", estado_table))
@@ -102,6 +116,7 @@ class DashboardOrchestrator:
                 selected_year,
                 prod_only=False,
                 export_chart_label="Cambios - Team",
+                chart_key_suffix="cambios_team",
             )
             if team_cambio is not None:
                 export_tables.append(("Cambios - Team", team_cambio))
@@ -115,50 +130,56 @@ class DashboardOrchestrator:
                 selected_year,
                 prod_only=False,
                 export_chart_label="Cambios - Estado",
+                chart_key_suffix="cambios_estado",
             )
             if estado_cambio is not None:
                 export_tables.append(("Cambios - Estado", estado_cambio))
 
-        internos_base = self.filter.filter_by_client(df, selected_client)
-        internos_base = self.filter.filter_by_team(internos_base, selected_team)
-        internos_base = self.filter.filter_by_types(internos_base, ["Interno"])
+        if not is_commercial_dashboard:
+            internos_base = self.filter.filter_by_client(df, selected_client)
+            internos_base = self.filter.filter_by_team(internos_base, selected_team)
+            internos_base = self.filter.filter_by_types(internos_base, ["Interno"])
 
-        st.header("KPIs - Solicitudes de Mejoras Técnicas")
-        st.subheader("Análisis de tickets de TODOS los ambientes")
+            st.header("KPIs - Solicitudes de Mejoras Técnicas")
+            st.subheader("Análisis de tickets de TODOS los ambientes")
 
-        if internos_base.empty:
-            st.warning("No hay datos para Solicitudes de Mejoras Técnicas con los filtros seleccionados.")
-        else:
-            team_interno = self._render_team_section(
-                internos_base,
-                selected_year,
-                prod_only=False,
-                export_chart_label="Internos - Team",
-            )
-            if team_interno is not None:
-                export_tables.append(("Internos - Team", team_interno))
+            if internos_base.empty:
+                st.warning("No hay datos para Solicitudes de Mejoras Técnicas con los filtros seleccionados.")
+            else:
+                team_interno = self._render_team_section(
+                    internos_base,
+                    selected_year,
+                    prod_only=False,
+                    export_chart_label="Internos - Team",
+                    chart_key_suffix="internos_team",
+                )
+                if team_interno is not None:
+                    export_tables.append(("Internos - Team", team_interno))
 
-            modulo_interno = self._render_modulo_section(internos_base, selected_year, prod_only=False)
-            if modulo_interno is not None:
-                export_tables.append(("Internos - Modulo", modulo_interno))
+                modulo_interno = self._render_modulo_section(internos_base, selected_year, prod_only=False)
+                if modulo_interno is not None:
+                    export_tables.append(("Internos - Modulo", modulo_interno))
 
-            estado_interno = self._render_estado_section(
-                internos_base,
-                selected_year,
-                prod_only=False,
-                export_chart_label="Internos - Estado",
-            )
-            if estado_interno is not None:
-                export_tables.append(("Internos - Estado", estado_interno))
+                estado_interno = self._render_estado_section(
+                    internos_base,
+                    selected_year,
+                    prod_only=False,
+                    export_chart_label="Internos - Estado",
+                    chart_key_suffix="internos_estado",
+                )
+                if estado_interno is not None:
+                    export_tables.append(("Internos - Estado", estado_interno))
 
         self._render_export_section(
             export_tables,
             selected_year=selected_year,
             selected_client=selected_client,
             selected_team=selected_team,
+            dashboard_name=dashboard_name,
+            widget_prefix=widget_prefix,
         )
     
-    def _render_filters(self, df: pd.DataFrame) -> tuple:
+    def _render_filters(self, df: pd.DataFrame, widget_prefix: str) -> tuple:
         """Render filter controls and return selections."""
         col1, col2, col3 = st.columns(3)
         
@@ -176,7 +197,7 @@ class DashboardOrchestrator:
                     "Año",
                     year_options,
                     index=year_index,
-                    key="hybrid_year",
+                    key=f"{widget_prefix}_year",
                     format_func=lambda value: f"{int(value) - 1} - {int(value)}",
                 )
                 if year_options
@@ -186,7 +207,11 @@ class DashboardOrchestrator:
         with col2:
             client_options = sorted(df["Grupo"].dropna().unique())
             selected_client = (
-                st.selectbox("Cliente (Grupo)", ["Todos"] + client_options, key="hybrid_cliente")
+                st.selectbox(
+                    "Cliente (Grupo)",
+                    ["Todos"] + client_options,
+                    key=f"{widget_prefix}_cliente",
+                )
                 if client_options
                 else "Todos"
             )
@@ -194,7 +219,12 @@ class DashboardOrchestrator:
         with col3:
             team_options = sorted(df["Team Asignado"].dropna().unique())
             selected_team = (
-                st.multiselect("Team Asignado", team_options, default=[], key="hybrid_team")
+                st.multiselect(
+                    "Team Asignado",
+                    team_options,
+                    default=[],
+                    key=f"{widget_prefix}_team",
+                )
                 if team_options
                 else []
             )
@@ -333,7 +363,11 @@ class DashboardOrchestrator:
 
         usage_chart = usage[usage["anio"].isin(years)].copy()
         if not usage_chart.empty:
-            usage_fig = self.chart_renderer.render_usage_trend_chart(usage_chart, None)
+            usage_fig = self.chart_renderer.render_usage_trend_chart(
+                usage_chart,
+                None,
+                chart_key=f"{self._widget_prefix}_chart_usage_activity",
+            )
             self._export_charts.append(("Usabilidad - Actividad", usage_fig))
 
         return display_table
@@ -359,6 +393,8 @@ class DashboardOrchestrator:
         selected_year: Optional[int],
         selected_client: str,
         selected_team: List[str],
+        dashboard_name: str,
+        widget_prefix: str,
     ) -> None:
         """Render export buttons for currently displayed tables."""
         if not export_tables:
@@ -368,11 +404,11 @@ class DashboardOrchestrator:
         team_label = ", ".join(selected_team) if selected_team else "Todos"
         year_label = str(int(selected_year)) if selected_year is not None else "Todos"
         filters_text = (
-            f"Filtros aplicados - Año: {year_label} | Cliente: {selected_client or 'Todos'} | "
+            f"Dashboard: {dashboard_name} | Año: {year_label} | Cliente: {selected_client or 'Todos'} | "
             f"Team Asignado: {team_label}"
         )
 
-        cache = st.session_state.setdefault("export_cache", {})
+        cache = st.session_state.setdefault(f"export_cache_{widget_prefix}", {})
         cache.setdefault("busy", False)
         cache.setdefault("pending_action", None)
         is_busy = bool(cache.get("busy"))
@@ -382,6 +418,7 @@ class DashboardOrchestrator:
             value=False,
             help="Activado: incluye gráficos (consume más memoria, especialmente en PDF). Desactivado: solo tablas (más estable y rápido).",
             disabled=is_busy,
+            key=f"{widget_prefix}_include_charts",
         )
         chart_payload = self._export_charts if include_charts else None
 
@@ -412,7 +449,8 @@ class DashboardOrchestrator:
 
         safe_client = TextNormalizer.normalize_column_name(selected_client or "todos").replace(" ", "_")
         safe_year = year_label.replace(" ", "_")
-        filename_base = f"reporte_filtrado_{safe_client}_{safe_year}"
+        safe_dashboard = TextNormalizer.normalize_column_name(dashboard_name).replace(" ", "_")
+        filename_base = f"reporte_filtrado_{safe_dashboard}_{safe_client}_{safe_year}"
 
         col1, col2 = st.columns(2)
         with col1:
@@ -421,7 +459,12 @@ class DashboardOrchestrator:
                 and cache.get("excel_signature") == excel_signature
             )
             if not excel_ready:
-                if st.button("Preparar Excel", use_container_width=True, disabled=is_busy):
+                if st.button(
+                    "Preparar Excel",
+                    use_container_width=True,
+                    disabled=is_busy,
+                    key=f"{widget_prefix}_prepare_excel",
+                ):
                     cache["busy"] = True
                     cache["pending_action"] = "excel"
                     st.rerun()
@@ -433,6 +476,7 @@ class DashboardOrchestrator:
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True,
                     disabled=is_busy,
+                    key=f"{widget_prefix}_download_excel",
                 )
 
         with col2:
@@ -441,7 +485,12 @@ class DashboardOrchestrator:
                 and cache.get("pdf_signature") == pdf_signature
             )
             if not pdf_ready:
-                if st.button("Preparar PDF", use_container_width=True, disabled=is_busy):
+                if st.button(
+                    "Preparar PDF",
+                    use_container_width=True,
+                    disabled=is_busy,
+                    key=f"{widget_prefix}_prepare_pdf",
+                ):
                     cache["busy"] = True
                     cache["pending_action"] = "pdf"
                     st.rerun()
@@ -453,6 +502,7 @@ class DashboardOrchestrator:
                     mime="application/pdf",
                     use_container_width=True,
                     disabled=is_busy,
+                    key=f"{widget_prefix}_download_pdf",
                 )
 
         pending_action = cache.get("pending_action")
@@ -468,7 +518,7 @@ class DashboardOrchestrator:
                     with st.spinner("Generando archivo PDF..."):
                         cache["pdf_bytes"] = self.export_builder.build_pdf_bytes(
                             export_tables,
-                            title="Informes Gerenciales de Tickets",
+                            title=f"Informes Gerenciales de Tickets - {dashboard_name}",
                             filters_text=filters_text,
                             charts=chart_payload,
                         )
@@ -611,7 +661,10 @@ class DashboardOrchestrator:
                 ],
                 ignore_index=True,
             )
-            flow_fig = self.chart_renderer.render_flow_chart(flow_chart)
+            flow_fig = self.chart_renderer.render_flow_chart(
+                flow_chart,
+                chart_key=f"{self._widget_prefix}_chart_incidents_flow",
+            )
             if flow_fig is not None:
                 self._export_charts.append(("Consulta e Incidencias - Flujo", flow_fig))
 
@@ -623,6 +676,7 @@ class DashboardOrchestrator:
         selected_year: Optional[int],
         prod_only: bool,
         export_chart_label: Optional[str] = None,
+        chart_key_suffix: str = "team",
     ) -> Optional[pd.DataFrame]:
         """Render team asignado analysis section."""
         st.subheader("KPI - Team Asignado")
@@ -673,7 +727,10 @@ class DashboardOrchestrator:
             chart_df = self.filter.filter_production_environment(chart_df)
         if not chart_df.empty:
             team_fig = self.chart_renderer.render_trend_chart(
-                chart_df, "Team Asignado", None
+                chart_df,
+                "Team Asignado",
+                None,
+                chart_key=f"{self._widget_prefix}_chart_{chart_key_suffix}",
             )
             if team_fig is not None:
                 chart_label = export_chart_label or "KPI - Team Asignado"
@@ -687,6 +744,7 @@ class DashboardOrchestrator:
         selected_year: Optional[int],
         prod_only: bool,
         export_chart_label: Optional[str] = None,
+        chart_key_suffix: str = "estado",
     ) -> Optional[pd.DataFrame]:
         """Render estado (status) analysis section."""
         st.subheader("KPI - Estado")
@@ -734,7 +792,12 @@ class DashboardOrchestrator:
         if prod_only:
             chart_df = self.filter.filter_production_environment(chart_df)
         if not chart_df.empty:
-            estado_fig = self.chart_renderer.render_trend_chart(chart_df, "Estado", None)
+            estado_fig = self.chart_renderer.render_trend_chart(
+                chart_df,
+                "Estado",
+                None,
+                chart_key=f"{self._widget_prefix}_chart_{chart_key_suffix}",
+            )
             if estado_fig is not None:
                 chart_label = export_chart_label or "KPI - Estado"
                 self._export_charts.append((chart_label, estado_fig))
@@ -843,7 +906,12 @@ class DashboardOrchestrator:
         chart_years = [current_year - 1, current_year]
         chart_df = base_filtered[base_filtered["Año"].isin(chart_years)].copy()
         if not chart_df.empty:
-            ambiente_fig = self.chart_renderer.render_trend_chart(chart_df, "Ambiente", None)
+            ambiente_fig = self.chart_renderer.render_trend_chart(
+                chart_df,
+                "Ambiente",
+                None,
+                chart_key=f"{self._widget_prefix}_chart_ambiente",
+            )
             if ambiente_fig is not None:
                 chart_label = export_chart_label or "KPI - Ambiente"
                 self._export_charts.append((chart_label, ambiente_fig))
@@ -923,7 +991,10 @@ class DashboardOrchestrator:
                 .dt.to_timestamp()
             )
             sla_fig = self.chart_renderer.render_trend_chart(
-                chart_df, "Estado de resolucion", None
+                chart_df,
+                "Estado de resolucion",
+                None,
+                chart_key=f"{self._widget_prefix}_chart_sla",
             )
             if sla_fig is not None:
                 self._export_charts.append(("Consulta e Incidencias - SLA", sla_fig))

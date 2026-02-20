@@ -87,8 +87,23 @@ class TicketAnalysisApp:
         df = self.validator.validate_and_standardize(df)
         df = self.preprocessor.preprocess(df)
         
-        # Render dashboard
-        self.dashboard.render_dashboard(df, usage_df)
+        tab_soporte, tab_comercial = st.tabs(["Dashboard Soporte", "Dashboard Comercial"])
+
+        with tab_soporte:
+            self.dashboard.render_dashboard(
+                df,
+                usage_df,
+                dashboard_name="Dashboard Soporte",
+                widget_prefix="soporte",
+            )
+
+        with tab_comercial:
+            self.dashboard.render_dashboard(
+                df,
+                usage_df,
+                dashboard_name="Dashboard Comercial",
+                widget_prefix="comercial",
+            )
 
 
 def main():

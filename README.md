@@ -42,8 +42,11 @@ Se espera un Excel con columnas (insensible a mayusculas/espacios):
 ## Uso
 1. Ejecuta la app.
 2. Carga ambos archivos.
-3. Selecciona filtros por año, cliente y team asignado.
-4. Revisa KPIs, tablas y tendencias.
+3. Elige el dashboard:
+   - Dashboard Soporte: incluye todas las secciones actuales.
+   - Dashboard Comercial: incluye Usabilidad, Incidencias (Flujo, SLA, Módulo, Estado) y Cambios (Team, Módulo, Estado).
+4. Selecciona filtros por año, cliente y team asignado.
+5. Revisa KPIs, tablas y tendencias.
 
 ## Estructura del proyecto
 - app.py: punto de entrada y coordinacion de componentes.
