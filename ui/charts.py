@@ -1,5 +1,5 @@
 """Chart rendering functionality."""
-from typing import Optional
+from typing import List, Optional
 import pandas as pd
 import plotly.express as px
 import streamlit as st
@@ -19,10 +19,11 @@ class ChartRenderer:
         category_col: str,
         selected_year: Optional[int],
         chart_key: Optional[str] = None,
+        category_order: Optional[List[str]] = None,
     ) -> px.line:
         """Render a monthly trend chart with labels."""
-        trend = self._prepare_trend_data(df, category_col, selected_year)
-        fig = self._create_line_chart(trend, category_col)
+        trend = self._prepare_trend_data(df, category_col, selected_year, category_order)
+        fig = self._create_line_chart(trend, category_col, category_order)
         
         st.plotly_chart(fig, width="stretch", key=chart_key)
         return fig
@@ -53,7 +54,11 @@ class ChartRenderer:
         return fig
     
     def _prepare_trend_data(
-        self, df: pd.DataFrame, category_col: str, selected_year: Optional[int]
+        self,
+        df: pd.DataFrame,
+        category_col: str,
+        selected_year: Optional[int],
+        category_order: Optional[List[str]] = None,
     ) -> pd.DataFrame:
         """Prepare trend data for visualization."""
         if category_col == "Estado de resolucion":
@@ -107,7 +112,13 @@ class ChartRenderer:
                 ))
             all_months = pd.to_datetime(all_months)
         
-        all_categories = sorted(df[category_col].dropna().unique())
+        detected_categories = [str(value) for value in df[category_col].dropna().unique()]
+        if category_order:
+            ordered_base = list(dict.fromkeys([str(cat) for cat in category_order]))
+            remaining = sorted([cat for cat in detected_categories if cat not in ordered_base])
+            all_categories = ordered_base + remaining
+        else:
+            all_categories = sorted(detected_categories)
         full_index = pd.MultiIndex.from_product(
             [all_months, all_categories],
             names=["Periodo", category_col],
@@ -174,8 +185,14 @@ class ChartRenderer:
 
         return trend
     
-    def _create_line_chart(self, trend: pd.DataFrame, category_col: str) -> px.line:
+    def _create_line_chart(
+        self,
+        trend: pd.DataFrame,
+        category_col: str,
+        category_order: Optional[List[str]] = None,
+    ) -> px.line:
         """Create a plotly line chart."""
+        category_orders = {category_col: category_order} if category_order else None
         fig = px.line(
             trend,
             x="Periodo",
@@ -183,6 +200,7 @@ class ChartRenderer:
             color=category_col,
             markers=True,
             text="ID del ticket",
+            category_orders=category_orders,
             labels={
                 "Periodo": "Mes",
                 "ID del ticket": "Tickets",
@@ -199,10 +217,12 @@ class ChartRenderer:
             year_suffix = f"{ts.year % 100:02d}"
             tick_text.append(f"{month_name}/{year_suffix}")
         fig.update_layout(
+            template="plotly_white",
             height=350,
             margin=dict(l=20, r=20, t=40, b=20),
             xaxis=dict(tickmode="array", tickvals=tick_vals, ticktext=tick_text),
         )
+        self._apply_readable_chart_layout(fig)
         
         return fig
 
@@ -231,10 +251,12 @@ class ChartRenderer:
             year_suffix = f"{ts.year % 100:02d}"
             tick_text.append(f"{month_name}/{year_suffix}")
         fig.update_layout(
+            template="plotly_white",
             height=350,
             margin=dict(l=20, r=20, t=40, b=20),
             xaxis=dict(tickmode="array", tickvals=tick_vals, ticktext=tick_text),
         )
+        self._apply_readable_chart_layout(fig)
 
         return fig
 
@@ -263,9 +285,22 @@ class ChartRenderer:
             year_suffix = f"{ts.year % 100:02d}"
             tick_text.append(f"{month_name}/{year_suffix}")
         fig.update_layout(
+            template="plotly_white",
             height=350,
             margin=dict(l=20, r=20, t=40, b=20),
             xaxis=dict(tickmode="array", tickvals=tick_vals, ticktext=tick_text),
         )
+        self._apply_readable_chart_layout(fig)
 
         return fig
+
+    @staticmethod
+    def _apply_readable_chart_layout(fig: px.line) -> None:
+        """Apply a consistent and slightly larger typography for chart readability."""
+        fig.update_layout(
+            font=dict(size=14),
+            legend=dict(font=dict(size=13), title=dict(font=dict(size=13))),
+            xaxis=dict(title=dict(font=dict(size=14)), tickfont=dict(size=13)),
+            yaxis=dict(title=dict(font=dict(size=14)), tickfont=dict(size=13)),
+        )
+        fig.update_traces(textfont=dict(size=13))

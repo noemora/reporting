@@ -20,10 +20,63 @@ class TicketAnalysisApp:
         self.validator = DataValidator(self.config)
         self.preprocessor = DataPreprocessor(self.config)
         self.dashboard = DashboardOrchestrator(self.config)
+
+    @staticmethod
+    def _apply_readability_styles() -> None:
+        """Apply global UI styles to improve readability."""
+        st.markdown(
+            """
+            <style>
+                section.main table {
+                    font-size: 2rem !important;
+                }
+
+                section.main table th {
+                    font-size: 4rem !important;
+                }
+
+                section.main table td {
+                    font-size: 2rem !important;
+                }
+
+                [data-testid="stTable"] table,
+                .stTable table,
+                [data-testid="stDataFrame"] table,
+                .stDataFrame table {
+                    font-size: 2rem !important;
+                }
+
+                [data-testid="stTable"] table th,
+                .stTable table th,
+                [data-testid="stDataFrame"] table th,
+                .stDataFrame table th,
+                [data-testid="stTable"] [role="columnheader"],
+                [data-testid="stDataFrame"] [role="columnheader"] {
+                    font-size: 4rem !important;
+                }
+
+                [data-testid="stTable"] table td,
+                .stTable table td,
+                [data-testid="stDataFrame"] table td,
+                .stDataFrame table td,
+                [data-testid="stTable"] [role="cell"],
+                [data-testid="stDataFrame"] [role="cell"] {
+                    font-size: 2rem !important;
+                }
+
+                [data-testid="stTable"] *,
+                [data-testid="stDataFrame"] * {
+                    line-height: 1.2 !important;
+                }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
     
     def run(self) -> None:
         """Run the main application."""
         st.set_page_config(page_title="Informes Gerenciales de Tickets", layout="wide")
+        self._apply_readability_styles()
         st.title("Informes Gerenciales de Tickets")
 
         if "processed" not in st.session_state:

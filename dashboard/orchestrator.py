@@ -20,6 +20,17 @@ class DashboardOrchestrator:
         self.export_builder = ExportBuilder()
         self.chart_renderer = ChartRenderer(config)
         self.ui_renderer = UIRenderer()
+
+    def _build_widget_key(self, *parts: str) -> str:
+        """Build a stable and unique Streamlit key for the active dashboard context."""
+        normalized_parts = [
+            str(part).strip().lower().replace(" ", "_").replace("-", "_")
+            for part in parts
+            if str(part).strip()
+        ]
+        if not normalized_parts:
+            return self._widget_prefix
+        return "_".join([self._widget_prefix, *normalized_parts])
     
     def render_dashboard(
         self,
@@ -36,7 +47,7 @@ class DashboardOrchestrator:
         st.header(dashboard_name)
         # Render filters
         st.subheader("Filtros")
-        selected_year, selected_client, selected_team = self._render_filters(df, widget_prefix)
+        selected_year, selected_client, selected_team = self._render_filters(df)
         export_tables: List[Tuple[str, pd.DataFrame]] = []
 
         usage_table = self._render_usage_table(usage_df, selected_year, selected_client)
@@ -63,6 +74,16 @@ class DashboardOrchestrator:
             if incidents_table is not None:
                 export_tables.append(("Consulta e Incidencias - Flujo", incidents_table))
 
+            criticidad_table = self._render_criticidad_section(
+                base_filtered,
+                selected_year,
+                prod_only=True,
+                export_chart_label="Consulta e Incidencias - Criticidad",
+                chart_key_suffix="incidencias_criticidad",
+            )
+            if criticidad_table is not None:
+                export_tables.append(("Consulta e Incidencias - Criticidad", criticidad_table))
+
             if not is_commercial_dashboard:
                 team_table = self._render_team_section(
                     base_filtered,
@@ -77,6 +98,15 @@ class DashboardOrchestrator:
             sla_table = self._render_resolucion_section(base_filtered, selected_year)
             if sla_table is not None:
                 export_tables.append(("Consulta e Incidencias - SLA", sla_table))
+
+            sla_criticidad_table = self._render_sla_criticidad_section(
+                base_filtered,
+                selected_year,
+                export_chart_label="Consulta e Incidencias - SLA por Criticidad",
+                chart_key_suffix="incidencias_sla_criticidad",
+            )
+            if sla_criticidad_table is not None:
+                export_tables.append(("Consulta e Incidencias - SLA por Criticidad", sla_criticidad_table))
 
             modulo_table = self._render_modulo_section(base_filtered, selected_year, prod_only=True)
             if modulo_table is not None:
@@ -97,6 +127,7 @@ class DashboardOrchestrator:
                 prod_only=True,
                 export_chart_label="Consulta e Incidencias - Estado",
                 chart_key_suffix="incidencias_estado",
+                commercial_mode=is_commercial_dashboard,
             )
             if estado_table is not None:
                 export_tables.append(("Consulta e Incidencias - Estado", estado_table))
@@ -104,33 +135,52 @@ class DashboardOrchestrator:
         cambio_base = self.filter.filter_by_client(df, selected_client)
         cambio_base = self.filter.filter_by_team(cambio_base, selected_team)
         cambio_base = self.filter.filter_by_types(cambio_base, ["Cambio"])
+        cambios_prod_only = is_commercial_dashboard
 
         st.header("KPIs - Solicitudes de Cambio")
-        st.subheader("Análisis de tickets de TODOS los ambientes")
+        if cambios_prod_only:
+            st.subheader("Análisis de tickets en ambientes productivos")
+        else:
+            st.subheader("Análisis de tickets de TODOS los ambientes")
 
         if cambio_base.empty:
             st.warning("No hay datos para Solicitudes de Cambio con los filtros seleccionados.")
         else:
+            cliente_mensual_cambio = self._render_cliente_mensual_section(
+                cambio_base,
+                selected_year,
+                prod_only=cambios_prod_only,
+                export_chart_label="Cambios - Conteo mensual por cliente",
+                chart_key_suffix="cambios_cliente_mensual",
+            )
+            if cliente_mensual_cambio is not None:
+                export_tables.append(("Cambios - Conteo mensual por cliente", cliente_mensual_cambio))
+
             team_cambio = self._render_team_section(
                 cambio_base,
                 selected_year,
-                prod_only=False,
+                prod_only=cambios_prod_only,
                 export_chart_label="Cambios - Team",
                 chart_key_suffix="cambios_team",
             )
             if team_cambio is not None:
                 export_tables.append(("Cambios - Team", team_cambio))
 
-            modulo_cambio = self._render_modulo_section(cambio_base, selected_year, prod_only=False)
+            modulo_cambio = self._render_modulo_section(
+                cambio_base,
+                selected_year,
+                prod_only=cambios_prod_only,
+            )
             if modulo_cambio is not None:
                 export_tables.append(("Cambios - Modulo", modulo_cambio))
 
             estado_cambio = self._render_estado_section(
                 cambio_base,
                 selected_year,
-                prod_only=False,
+                prod_only=cambios_prod_only,
                 export_chart_label="Cambios - Estado",
                 chart_key_suffix="cambios_estado",
+                commercial_mode=is_commercial_dashboard,
             )
             if estado_cambio is not None:
                 export_tables.append(("Cambios - Estado", estado_cambio))
@@ -166,6 +216,7 @@ class DashboardOrchestrator:
                     prod_only=False,
                     export_chart_label="Internos - Estado",
                     chart_key_suffix="internos_estado",
+                    commercial_mode=False,
                 )
                 if estado_interno is not None:
                     export_tables.append(("Internos - Estado", estado_interno))
@@ -176,10 +227,9 @@ class DashboardOrchestrator:
             selected_client=selected_client,
             selected_team=selected_team,
             dashboard_name=dashboard_name,
-            widget_prefix=widget_prefix,
         )
     
-    def _render_filters(self, df: pd.DataFrame, widget_prefix: str) -> tuple:
+    def _render_filters(self, df: pd.DataFrame) -> tuple:
         """Render filter controls and return selections."""
         col1, col2, col3 = st.columns(3)
         
@@ -197,7 +247,7 @@ class DashboardOrchestrator:
                     "Año",
                     year_options,
                     index=year_index,
-                    key=f"{widget_prefix}_year",
+                    key=self._build_widget_key("filter", "year"),
                     format_func=lambda value: f"{int(value) - 1} - {int(value)}",
                 )
                 if year_options
@@ -210,7 +260,7 @@ class DashboardOrchestrator:
                 st.selectbox(
                     "Cliente (Grupo)",
                     ["Todos"] + client_options,
-                    key=f"{widget_prefix}_cliente",
+                    key=self._build_widget_key("filter", "cliente"),
                 )
                 if client_options
                 else "Todos"
@@ -223,7 +273,7 @@ class DashboardOrchestrator:
                     "Team Asignado",
                     team_options,
                     default=[],
-                    key=f"{widget_prefix}_team",
+                    key=self._build_widget_key("filter", "team"),
                 )
                 if team_options
                 else []
@@ -366,7 +416,7 @@ class DashboardOrchestrator:
             usage_fig = self.chart_renderer.render_usage_trend_chart(
                 usage_chart,
                 None,
-                chart_key=f"{self._widget_prefix}_chart_usage_activity",
+                chart_key=self._build_widget_key("chart", "usage_activity"),
             )
             self._export_charts.append(("Usabilidad - Actividad", usage_fig))
 
@@ -394,7 +444,6 @@ class DashboardOrchestrator:
         selected_client: str,
         selected_team: List[str],
         dashboard_name: str,
-        widget_prefix: str,
     ) -> None:
         """Render export buttons for currently displayed tables."""
         if not export_tables:
@@ -408,7 +457,7 @@ class DashboardOrchestrator:
             f"Team Asignado: {team_label}"
         )
 
-        cache = st.session_state.setdefault(f"export_cache_{widget_prefix}", {})
+        cache = st.session_state.setdefault(self._build_widget_key("export", "cache"), {})
         cache.setdefault("busy", False)
         cache.setdefault("pending_action", None)
         is_busy = bool(cache.get("busy"))
@@ -418,7 +467,7 @@ class DashboardOrchestrator:
             value=False,
             help="Activado: incluye gráficos (consume más memoria, especialmente en PDF). Desactivado: solo tablas (más estable y rápido).",
             disabled=is_busy,
-            key=f"{widget_prefix}_include_charts",
+            key=self._build_widget_key("export", "include_charts"),
         )
         chart_payload = self._export_charts if include_charts else None
 
@@ -463,7 +512,7 @@ class DashboardOrchestrator:
                     "Preparar Excel",
                     use_container_width=True,
                     disabled=is_busy,
-                    key=f"{widget_prefix}_prepare_excel",
+                    key=self._build_widget_key("export", "prepare_excel"),
                 ):
                     cache["busy"] = True
                     cache["pending_action"] = "excel"
@@ -476,7 +525,7 @@ class DashboardOrchestrator:
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True,
                     disabled=is_busy,
-                    key=f"{widget_prefix}_download_excel",
+                    key=self._build_widget_key("export", "download_excel"),
                 )
 
         with col2:
@@ -489,7 +538,7 @@ class DashboardOrchestrator:
                     "Preparar PDF",
                     use_container_width=True,
                     disabled=is_busy,
-                    key=f"{widget_prefix}_prepare_pdf",
+                    key=self._build_widget_key("export", "prepare_pdf"),
                 ):
                     cache["busy"] = True
                     cache["pending_action"] = "pdf"
@@ -502,7 +551,7 @@ class DashboardOrchestrator:
                     mime="application/pdf",
                     use_container_width=True,
                     disabled=is_busy,
-                    key=f"{widget_prefix}_download_pdf",
+                    key=self._build_widget_key("export", "download_pdf"),
                 )
 
         pending_action = cache.get("pending_action")
@@ -663,7 +712,7 @@ class DashboardOrchestrator:
             )
             flow_fig = self.chart_renderer.render_flow_chart(
                 flow_chart,
-                chart_key=f"{self._widget_prefix}_chart_incidents_flow",
+                chart_key=self._build_widget_key("chart", "incidents_flow"),
             )
             if flow_fig is not None:
                 self._export_charts.append(("Consulta e Incidencias - Flujo", flow_fig))
@@ -730,7 +779,7 @@ class DashboardOrchestrator:
                 chart_df,
                 "Team Asignado",
                 None,
-                chart_key=f"{self._widget_prefix}_chart_{chart_key_suffix}",
+                chart_key=self._build_widget_key("chart", chart_key_suffix),
             )
             if team_fig is not None:
                 chart_label = export_chart_label or "KPI - Team Asignado"
@@ -738,16 +787,16 @@ class DashboardOrchestrator:
 
         return display_table
 
-    def _render_estado_section(
+    def _render_cliente_mensual_section(
         self,
         base_filtered: pd.DataFrame,
         selected_year: Optional[int],
         prod_only: bool,
         export_chart_label: Optional[str] = None,
-        chart_key_suffix: str = "estado",
+        chart_key_suffix: str = "cliente_mensual",
     ) -> Optional[pd.DataFrame]:
-        """Render estado (status) analysis section."""
-        st.subheader("KPI - Estado")
+        """Render monthly ticket count by client section."""
+        st.subheader("KPI - Conteo mensual por cliente")
         current_year = selected_year or pd.Timestamp.today().year
         years = [current_year - 1, current_year]
 
@@ -759,7 +808,242 @@ class DashboardOrchestrator:
             if year_df.empty:
                 st.info(f"ℹ️ No hay datos para el año {year}")
                 continue
-            pivot = self.table_builder.build_pivot_table(year_df, "Estado", "Sin estado")
+            pivot = self.table_builder.build_pivot_table(
+                year_df,
+                "Grupo",
+                "Sin cliente",
+            )
+            if "Total" in pivot.index:
+                total_row = pivot.loc[["Total"]]
+                pivot_body = pivot.drop(index="Total")
+                pivot_body = pivot_body.sort_values(by="Total", ascending=False)
+                pivot = pd.concat([pivot_body, total_row])
+            else:
+                pivot = pivot.sort_values(by="Total", ascending=False)
+
+            year_row = pd.DataFrame(
+                [{col: pd.NA for col in pivot.columns}],
+                index=[f"~~ AÑO {year} ~~"],
+            )
+            year_row.index.name = pivot.index.name
+            tables.extend([year_row, pivot])
+
+        if not tables:
+            st.warning("No hay datos para KPI - Conteo mensual por cliente con los filtros seleccionados.")
+            return None
+
+        combined_table = pd.concat(tables)
+        combined_table.index.name = "Cliente"
+        combined_table[combined_table.columns] = combined_table[combined_table.columns].apply(
+            pd.to_numeric, errors="coerce"
+        )
+        display_table = combined_table.apply(
+            lambda col: col.map(
+                lambda value: ""
+                if pd.isna(value)
+                else f"{value:,.0f}".replace(",", ".")
+                if isinstance(value, (int, float)) and not isinstance(value, bool)
+                else str(value)
+            )
+        )
+        st.table(display_table)
+
+        chart_years = [current_year - 1, current_year]
+        chart_df = base_filtered[base_filtered["Año"].isin(chart_years)].copy()
+        if prod_only:
+            chart_df = self.filter.filter_production_environment(chart_df)
+        if not chart_df.empty:
+            cliente_fig = self.chart_renderer.render_trend_chart(
+                chart_df,
+                "Grupo",
+                None,
+                chart_key=self._build_widget_key("chart", chart_key_suffix),
+            )
+            if cliente_fig is not None:
+                chart_label = export_chart_label or "KPI - Conteo mensual por cliente"
+                self._export_charts.append((chart_label, cliente_fig))
+
+        return display_table
+
+    def _render_criticidad_section(
+        self,
+        base_filtered: pd.DataFrame,
+        selected_year: Optional[int],
+        prod_only: bool,
+        export_chart_label: Optional[str] = None,
+        chart_key_suffix: str = "criticidad",
+    ) -> Optional[pd.DataFrame]:
+        """Render criticidad analysis section based on ticket priority."""
+        st.subheader("KPI - Criticidad")
+        current_year = selected_year or pd.Timestamp.today().year
+        years = [current_year - 1, current_year]
+
+        tables = []
+        for year in years:
+            year_df = self.filter.filter_by_year(base_filtered, year)
+            if prod_only:
+                year_df = self.filter.filter_production_environment(year_df)
+            if year_df.empty:
+                st.info(f"ℹ️ No hay datos para el año {year}")
+                continue
+
+            pivot = self.table_builder.build_pivot_table(
+                year_df, "Prioridad", "Sin criticidad"
+            )
+            priority_order_map = {
+                "urgente": 0,
+                "urgent": 0,
+                "alta": 1,
+                "high": 1,
+                "media": 2,
+                "medium": 2,
+                "baja": 3,
+                "low": 3,
+            }
+            if "Total" in pivot.index:
+                total_row = pivot.loc[["Total"]]
+                pivot_body = pivot.drop(index="Total")
+            else:
+                total_row = None
+                pivot_body = pivot
+
+            priority_labels = pivot_body.index.to_series().astype(str)
+            priority_sort = priority_labels.str.strip().str.lower().map(priority_order_map).fillna(99)
+            tie_breaker = priority_labels.str.strip().str.lower()
+            pivot_body = pivot_body.assign(_prio_sort=priority_sort.values, _prio_tie=tie_breaker.values)
+            pivot_body = pivot_body.sort_values(by=["_prio_sort", "_prio_tie"]).drop(columns=["_prio_sort", "_prio_tie"])
+
+            if total_row is not None:
+                pivot = pd.concat([pivot_body, total_row])
+            else:
+                pivot = pivot_body
+
+            year_row = pd.DataFrame(
+                [{col: pd.NA for col in pivot.columns}],
+                index=[f"~~ AÑO {year} ~~"],
+            )
+            year_row.index.name = pivot.index.name
+            tables.extend([year_row, pivot])
+
+        if not tables:
+            st.warning("No hay datos para KPI - Criticidad con los filtros seleccionados.")
+            return None
+
+        combined_table = pd.concat(tables)
+        combined_table.index.name = "Prioridad"
+        combined_table[combined_table.columns] = combined_table[combined_table.columns].apply(
+            pd.to_numeric, errors="coerce"
+        )
+        display_table = combined_table.apply(
+            lambda col: col.map(
+                lambda value: ""
+                if pd.isna(value)
+                else f"{value:,.0f}".replace(",", ".")
+                if isinstance(value, (int, float)) and not isinstance(value, bool)
+                else str(value)
+            )
+        )
+        st.table(display_table)
+
+        chart_years = [current_year - 1, current_year]
+        chart_df = base_filtered[base_filtered["Año"].isin(chart_years)].copy()
+        if prod_only:
+            chart_df = self.filter.filter_production_environment(chart_df)
+        if not chart_df.empty:
+            chart_df = chart_df.copy()
+            chart_df["Prioridad"] = chart_df["Prioridad"].fillna("Sin criticidad")
+            chart_priority_labels = chart_df["Prioridad"].astype(str).str.strip()
+            chart_priority_sort = chart_priority_labels.str.lower().map(priority_order_map).fillna(99)
+            chart_priority_order = (
+                pd.DataFrame(
+                    {
+                        "label": chart_priority_labels,
+                        "sort": chart_priority_sort,
+                        "tie": chart_priority_labels.str.lower(),
+                    }
+                )
+                .drop_duplicates(subset=["label"])
+                .sort_values(by=["sort", "tie"])["label"]
+                .tolist()
+            )
+            criticidad_fig = self.chart_renderer.render_trend_chart(
+                chart_df,
+                "Prioridad",
+                None,
+                chart_key=self._build_widget_key("chart", chart_key_suffix),
+                category_order=chart_priority_order,
+            )
+            if criticidad_fig is not None:
+                chart_label = export_chart_label or "KPI - Criticidad"
+                self._export_charts.append((chart_label, criticidad_fig))
+
+        return display_table
+
+    def _render_estado_section(
+        self,
+        base_filtered: pd.DataFrame,
+        selected_year: Optional[int],
+        prod_only: bool,
+        export_chart_label: Optional[str] = None,
+        chart_key_suffix: str = "estado",
+        commercial_mode: bool = False,
+    ) -> Optional[pd.DataFrame]:
+        """Render estado (status) analysis section."""
+        st.subheader("KPI - Estado")
+        current_year = selected_year or pd.Timestamp.today().year
+        years = [current_year - 1, current_year]
+        commercial_status_order = ["Pendiente", "En progreso", "Resuelto"]
+
+        tables = []
+        for year in years:
+            year_df = self.filter.filter_by_year(base_filtered, year)
+            if prod_only:
+                year_df = self.filter.filter_production_environment(year_df)
+            if year_df.empty:
+                st.info(f"ℹ️ No hay datos para el año {year}")
+                continue
+
+            if commercial_mode:
+                estado_series = year_df["Estado"].fillna("").astype(str).str.strip().str.lower()
+                estado_comercial = pd.Series(pd.NA, index=year_df.index, dtype="object")
+                estado_comercial = estado_comercial.mask(
+                    estado_series.str.contains("pendiente", na=False),
+                    "Pendiente",
+                )
+                estado_comercial = estado_comercial.mask(
+                    estado_series.str.contains("progreso", na=False),
+                    "En progreso",
+                )
+                estado_comercial = estado_comercial.mask(
+                    estado_series.str.contains("resuelto|cerrado|solucionado", na=False),
+                    "Resuelto",
+                )
+
+                estado_df = year_df.copy()
+                estado_df["Estado Comercial"] = estado_comercial
+                estado_df = estado_df.dropna(subset=["Estado Comercial"])
+
+                month_order = list(range(1, 13))
+                if estado_df.empty:
+                    pivot = pd.DataFrame(0, index=commercial_status_order, columns=month_order)
+                else:
+                    pivot = (
+                        estado_df.pivot_table(
+                            index="Estado Comercial",
+                            columns="Mes",
+                            values="ID del ticket",
+                            aggfunc="nunique",
+                            fill_value=0,
+                        )
+                        .reindex(index=commercial_status_order, fill_value=0)
+                        .reindex(columns=month_order, fill_value=0)
+                    )
+                pivot.columns = [self.config.MONTH_NAMES_ES.get(m, str(m)) for m in pivot.columns]
+                pivot["Total"] = pivot.sum(axis=1)
+                pivot.loc["Total"] = pivot.sum(axis=0)
+            else:
+                pivot = self.table_builder.build_pivot_table(year_df, "Estado", "Sin estado")
+
             year_row = pd.DataFrame(
                 [{col: pd.NA for col in pivot.columns}],
                 index=[f"~~ AÑO {year} ~~"],
@@ -792,11 +1076,35 @@ class DashboardOrchestrator:
         if prod_only:
             chart_df = self.filter.filter_production_environment(chart_df)
         if not chart_df.empty:
+            category_order = None
+            category_col = "Estado"
+            if commercial_mode:
+                estado_series = chart_df["Estado"].fillna("").astype(str).str.strip().str.lower()
+                estado_comercial = pd.Series(pd.NA, index=chart_df.index, dtype="object")
+                estado_comercial = estado_comercial.mask(
+                    estado_series.str.contains("pendiente", na=False),
+                    "Pendiente",
+                )
+                estado_comercial = estado_comercial.mask(
+                    estado_series.str.contains("progreso", na=False),
+                    "En progreso",
+                )
+                estado_comercial = estado_comercial.mask(
+                    estado_series.str.contains("resuelto|cerrado|solucionado", na=False),
+                    "Resuelto",
+                )
+                chart_df = chart_df.copy()
+                chart_df["Estado Comercial"] = estado_comercial
+                chart_df = chart_df.dropna(subset=["Estado Comercial"])
+                category_col = "Estado Comercial"
+                category_order = commercial_status_order
+
             estado_fig = self.chart_renderer.render_trend_chart(
                 chart_df,
-                "Estado",
+                category_col,
                 None,
-                chart_key=f"{self._widget_prefix}_chart_{chart_key_suffix}",
+                chart_key=self._build_widget_key("chart", chart_key_suffix),
+                category_order=category_order,
             )
             if estado_fig is not None:
                 chart_label = export_chart_label or "KPI - Estado"
@@ -910,7 +1218,7 @@ class DashboardOrchestrator:
                 chart_df,
                 "Ambiente",
                 None,
-                chart_key=f"{self._widget_prefix}_chart_ambiente",
+                chart_key=self._build_widget_key("chart", "ambiente"),
             )
             if ambiente_fig is not None:
                 chart_label = export_chart_label or "KPI - Ambiente"
@@ -994,9 +1302,151 @@ class DashboardOrchestrator:
                 chart_df,
                 "Estado de resolucion",
                 None,
-                chart_key=f"{self._widget_prefix}_chart_sla",
+                chart_key=self._build_widget_key("chart", "sla"),
             )
             if sla_fig is not None:
                 self._export_charts.append(("Consulta e Incidencias - SLA", sla_fig))
 
         return formatted_table
+
+    def _render_sla_criticidad_section(
+        self,
+        base_filtered: pd.DataFrame,
+        selected_year: Optional[int],
+        export_chart_label: Optional[str] = None,
+        chart_key_suffix: str = "sla_criticidad",
+    ) -> Optional[pd.DataFrame]:
+        """Render SLA by criticidad section based on resolution date."""
+        st.subheader("KPI - SLA por Criticidad")
+        current_year = selected_year or pd.Timestamp.today().year
+        years = [current_year - 1, current_year]
+
+        priority_order_map = {
+            "urgente": 0,
+            "urgent": 0,
+            "alta": 1,
+            "high": 1,
+            "media": 2,
+            "medium": 2,
+            "baja": 3,
+            "low": 3,
+        }
+        status_order_map = {"Incumplido": 0, "Cumplido": 1}
+
+        tables = []
+        chart_frames = []
+        for year in years:
+            sla_base = self.filter.filter_resolved_by_year(base_filtered, year)
+            sla_prod = self.filter.filter_production_environment(sla_base)
+            if sla_prod.empty:
+                st.info(f"ℹ️ No hay datos para el año {year}")
+                continue
+
+            sla_prod = sla_prod.copy()
+            estado_norm = sla_prod["Estado de resolucion"].astype(str).str.strip().str.lower()
+            sla_prod["SLA Estado"] = ""
+            sla_prod.loc[estado_norm == "within sla", "SLA Estado"] = "Cumplido"
+            sla_prod.loc[estado_norm == "sla violated", "SLA Estado"] = "Incumplido"
+            sla_prod = sla_prod[sla_prod["SLA Estado"].isin(["Cumplido", "Incumplido"])]
+            if sla_prod.empty:
+                st.info(f"ℹ️ No hay datos de SLA para el año {year}")
+                continue
+
+            sla_prod["Prioridad"] = sla_prod["Prioridad"].fillna("Sin criticidad")
+            sla_prod["SLA Criticidad"] = (
+                sla_prod["SLA Estado"].astype(str).str.strip()
+                + " - "
+                + sla_prod["Prioridad"].astype(str).str.strip()
+            )
+            sla_prod["Mes"] = pd.to_datetime(sla_prod["Hora de resolucion"], errors="coerce").dt.month
+
+            pivot = self.table_builder.build_pivot_table(
+                sla_prod, "SLA Criticidad", "Sin criticidad"
+            )
+            if "Total" in pivot.index:
+                total_row = pivot.loc[["Total"]]
+                pivot_body = pivot.drop(index="Total")
+            else:
+                total_row = None
+                pivot_body = pivot
+
+            labels = pivot_body.index.to_series().astype(str)
+            status_part = labels.str.split(" - ").str[0].str.strip()
+            priority_part = labels.str.split(" - ").str[1:].str.join(" - ").str.strip()
+            status_sort = status_part.map(status_order_map).fillna(99)
+            priority_sort = priority_part.str.lower().map(priority_order_map).fillna(99)
+            tie_breaker = labels.str.strip().str.lower()
+            pivot_body = pivot_body.assign(
+                _status_sort=status_sort.values,
+                _priority_sort=priority_sort.values,
+                _tie=tie_breaker.values,
+            )
+            pivot_body = pivot_body.sort_values(
+                by=["_status_sort", "_priority_sort", "_tie"]
+            ).drop(columns=["_status_sort", "_priority_sort", "_tie"])
+
+            year_row = pd.DataFrame(
+                [{col: pd.NA for col in pivot_body.columns}],
+                index=[f"~~ AÑO {year} ~~"],
+            )
+            year_row.index.name = pivot_body.index.name
+            tables.extend([year_row, pivot_body])
+            chart_frames.append(sla_prod)
+
+        if not tables:
+            st.warning("No hay datos para KPI - SLA por Criticidad con los filtros seleccionados.")
+            return None
+
+        combined_table = pd.concat(tables)
+        combined_table.index.name = "SLA - Criticidad"
+        combined_table[combined_table.columns] = combined_table[combined_table.columns].apply(
+            pd.to_numeric, errors="coerce"
+        )
+        display_table = combined_table.apply(
+            lambda col: col.map(
+                lambda value: ""
+                if pd.isna(value)
+                else f"{value:,.0f}".replace(",", ".")
+                if isinstance(value, (int, float)) and not isinstance(value, bool)
+                else str(value)
+            )
+        )
+        st.table(display_table)
+
+        if chart_frames:
+            chart_df = pd.concat(chart_frames, ignore_index=True)
+            chart_df["Periodo"] = (
+                pd.to_datetime(chart_df["Hora de resolucion"], errors="coerce")
+                .dt.to_period("M")
+                .dt.to_timestamp()
+            )
+            chart_labels = chart_df["SLA Criticidad"].astype(str).str.strip()
+            chart_status = chart_labels.str.split(" - ").str[0].str.strip()
+            chart_priority = chart_labels.str.split(" - ").str[1:].str.join(" - ").str.strip()
+            chart_status_sort = chart_status.map(status_order_map).fillna(99)
+            chart_priority_sort = chart_priority.str.lower().map(priority_order_map).fillna(99)
+            chart_order = (
+                pd.DataFrame(
+                    {
+                        "label": chart_labels,
+                        "status_sort": chart_status_sort,
+                        "priority_sort": chart_priority_sort,
+                        "tie": chart_labels.str.lower(),
+                    }
+                )
+                .drop_duplicates(subset=["label"])
+                .sort_values(by=["status_sort", "priority_sort", "tie"])["label"]
+                .tolist()
+            )
+            chart_fig = self.chart_renderer.render_trend_chart(
+                chart_df,
+                "SLA Criticidad",
+                None,
+                chart_key=self._build_widget_key("chart", chart_key_suffix),
+                category_order=chart_order,
+            )
+            if chart_fig is not None:
+                chart_label = export_chart_label or "KPI - SLA por Criticidad"
+                self._export_charts.append((chart_label, chart_fig))
+
+        return display_table
