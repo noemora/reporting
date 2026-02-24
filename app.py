@@ -5,6 +5,7 @@ This is the main entry point for the application.
 Architecture follows SOLID principles with clear separation of concerns.
 """
 import streamlit as st
+from pathlib import Path
 
 from config import AppConfig
 from data import ExcelDataLoader, DataValidator, DataPreprocessor
@@ -72,10 +73,24 @@ class TicketAnalysisApp:
             """,
             unsafe_allow_html=True,
         )
+
+    @staticmethod
+    def _render_navbar_logo() -> None:
+        """Render app logo in navbar (left side) when available."""
+        logo_path = Path(__file__).resolve().parent / "assets" / "marca-flat.png"
+        if logo_path.exists() and hasattr(st, "logo"):
+            st.logo(str(logo_path))
     
     def run(self) -> None:
         """Run the main application."""
-        st.set_page_config(page_title="Informes Gerenciales de Tickets", layout="wide")
+        logo_path = Path(__file__).resolve().parent / "assets" / "marca-flat.png"
+        page_icon = str(logo_path) if logo_path.exists() else None
+        st.set_page_config(
+            page_title="Informes Gerenciales de Tickets",
+            page_icon=page_icon,
+            layout="wide",
+        )
+        self._render_navbar_logo()
         self._apply_readability_styles()
         st.title("Informes Gerenciales de Tickets")
 
@@ -140,13 +155,13 @@ class TicketAnalysisApp:
         df = self.validator.validate_and_standardize(df)
         df = self.preprocessor.preprocess(df)
         
-        tab_soporte, tab_comercial = st.tabs(["Dashboard Soporte", "Dashboard Comercial"])
+        tab_soporte, tab_comercial = st.tabs(["Reporte - Area Soporte", "Reporte - Area Comercial"])
 
         with tab_soporte:
             self.dashboard.render_dashboard(
                 df,
                 usage_df,
-                dashboard_name="Dashboard Soporte",
+                dashboard_name="Reporte - Area Soporte",
                 widget_prefix="soporte",
             )
 
@@ -154,7 +169,7 @@ class TicketAnalysisApp:
             self.dashboard.render_dashboard(
                 df,
                 usage_df,
-                dashboard_name="Dashboard Comercial",
+                dashboard_name="Reporte - Area Comercial",
                 widget_prefix="comercial",
             )
 

@@ -50,7 +50,7 @@ class AppConfig:
             }
         
         if self.RESOLVED_STATES is None:
-            self.RESOLVED_STATES = {"resuelto", "cerrado", "solucionado", "resueltos"}
+            self.RESOLVED_STATES = {"resuelto", "cerrado", "solucionado", "resueltos", "resolved", "closed"}
         
         if self.PROD_ENVIRONMENTS is None:
             self.PROD_ENVIRONMENTS = {"prod (cliente)", "produccion", "produccion ", "prod"}

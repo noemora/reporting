@@ -299,8 +299,8 @@ class ChartRenderer:
         """Apply a consistent and slightly larger typography for chart readability."""
         fig.update_layout(
             font=dict(size=14),
-            legend=dict(font=dict(size=13), title=dict(font=dict(size=13))),
-            xaxis=dict(title=dict(font=dict(size=14)), tickfont=dict(size=13)),
-            yaxis=dict(title=dict(font=dict(size=14)), tickfont=dict(size=13)),
+            legend=dict(font=dict(size=15), title=dict(font=dict(size=15))),
+            xaxis=dict(title=dict(font=dict(size=16)), tickfont=dict(size=15)),
+            yaxis=dict(title=dict(font=dict(size=16)), tickfont=dict(size=15)),
         )
-        fig.update_traces(textfont=dict(size=13))
+        fig.update_traces(textfont=dict(size=15))

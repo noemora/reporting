@@ -1,5 +1,5 @@
 """Data filtering functionality."""
-from typing import List, Optional
+from typing import List, Optional, Union
 import pandas as pd
 
 from config import AppConfig
@@ -18,9 +18,17 @@ class DataFilter:
             return df
         return df[df["Año"] == year]
     
-    def filter_by_client(self, df: pd.DataFrame, client: str) -> pd.DataFrame:
+    def filter_by_client(self, df: pd.DataFrame, client: Union[str, List[str]]) -> pd.DataFrame:
         """Filter data by client/group."""
-        if not client or client == "Todos" or "Grupo" not in df.columns:
+        if "Grupo" not in df.columns:
+            return df
+
+        if isinstance(client, list):
+            if not client:
+                return df
+            return df[df["Grupo"].isin(client)]
+
+        if not client or client == "Todos":
             return df
         return df[df["Grupo"] == client]
     
