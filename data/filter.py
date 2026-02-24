@@ -8,6 +8,23 @@ from utils import TextNormalizer
 
 class DataFilter:
     """Filters ticket data based on various criteria."""
+
+    PRIORITY_LABEL_MAP = {
+        "urgente": "Urgente",
+        "urgent": "Urgente",
+        "alta": "Alta",
+        "high": "Alta",
+        "media": "Media",
+        "medium": "Media",
+        "baja": "Baja",
+        "low": "Baja",
+    }
+    PRIORITY_ORDER = {
+        "Urgente": 0,
+        "Alta": 1,
+        "Media": 2,
+        "Baja": 3,
+    }
     
     def __init__(self, config: AppConfig):
         self.config = config
@@ -38,6 +55,15 @@ class DataFilter:
             return df
         return df[df["Team Asignado"].isin(team)]
 
+    def get_criticidad_options(self, df: pd.DataFrame) -> List[str]:
+        """Return available criticidad options in Spanish labels."""
+        if "Prioridad" not in df.columns:
+            return []
+
+        criticidad_series = self._build_criticidad_series(df)
+        options = [value for value in criticidad_series.dropna().astype(str).unique() if str(value).strip()]
+        return sorted(options, key=lambda value: self.PRIORITY_ORDER.get(str(value), 99))
+
     def filter_by_criticidad(self, df: pd.DataFrame, criticidades: List[str]) -> pd.DataFrame:
         """Filter data by criticidad/prioridad."""
         if not criticidades or "Prioridad" not in df.columns:
@@ -45,8 +71,18 @@ class DataFilter:
         normalized_selected = {str(value).strip() for value in criticidades if str(value).strip()}
         if not normalized_selected:
             return df
-        prioridad = df["Prioridad"].astype(str).str.strip()
-        return df[prioridad.isin(normalized_selected)]
+
+        criticidad_series = self._build_criticidad_series(df)
+        return df[criticidad_series.isin(normalized_selected)]
+
+    def _build_criticidad_series(self, df: pd.DataFrame) -> pd.Series:
+        """Normalize Prioridad values to Spanish criticidad labels."""
+        if "Prioridad" not in df.columns:
+            return pd.Series(index=df.index, dtype="string")
+
+        prioridad_norm = df["Prioridad"].astype("string").str.strip().str.lower()
+        criticidad_series = prioridad_norm.map(self.PRIORITY_LABEL_MAP).fillna("Sin criticidad")
+        return criticidad_series.astype("string")
     
     def filter_by_types(self, df: pd.DataFrame, types: List[str]) -> pd.DataFrame:
         """Filter data by ticket types."""

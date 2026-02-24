@@ -353,15 +353,7 @@ class DashboardOrchestrator:
             )
 
         with col4:
-            criticidad_options = []
-            if "Prioridad" in df.columns:
-                criticidad_options = sorted(
-                    {
-                        str(value).strip()
-                        for value in df["Prioridad"].dropna().unique()
-                        if str(value).strip()
-                    }
-                )
+            criticidad_options = self.filter.get_criticidad_options(df)
             selected_criticidad = (
                 st.multiselect(
                     "Criticidad",
