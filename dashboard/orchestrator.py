@@ -89,7 +89,7 @@ class DashboardOrchestrator:
         st.header(dashboard_name)
         # Render filters
         st.subheader("Filtros")
-        selected_year, selected_client, selected_team = self._render_filters(df)
+        selected_year, selected_client, selected_team, selected_criticidad = self._render_filters(df)
         export_tables: List[Tuple[str, pd.DataFrame]] = []
 
         usage_table = self._render_usage_table(usage_df, selected_year, selected_client)
@@ -98,6 +98,7 @@ class DashboardOrchestrator:
         
         base_filtered = self.filter.filter_by_client(df, selected_client)
         base_filtered = self.filter.filter_by_team(base_filtered, selected_team)
+        base_filtered = self.filter.filter_by_criticidad(base_filtered, selected_criticidad)
         base_filtered = self.filter.filter_by_types(
             base_filtered, ["Consulta de informacion", "Incidencia"]
         )
@@ -193,6 +194,7 @@ class DashboardOrchestrator:
 
         cambio_base = self.filter.filter_by_client(df, selected_client)
         cambio_base = self.filter.filter_by_team(cambio_base, selected_team)
+        cambio_base = self.filter.filter_by_criticidad(cambio_base, selected_criticidad)
         cambio_base = self.filter.filter_by_types(cambio_base, ["Cambio"])
         cambios_prod_only = is_commercial_dashboard
 
@@ -250,6 +252,7 @@ class DashboardOrchestrator:
         if not is_commercial_dashboard:
             internos_base = self.filter.filter_by_client(df, selected_client)
             internos_base = self.filter.filter_by_team(internos_base, selected_team)
+            internos_base = self.filter.filter_by_criticidad(internos_base, selected_criticidad)
             internos_base = self.filter.filter_by_types(internos_base, ["Interno"])
 
             st.header("KPIs - Solicitudes de Mejoras Técnicas")
@@ -294,12 +297,13 @@ class DashboardOrchestrator:
             selected_year=selected_year,
             selected_client=selected_client,
             selected_team=selected_team,
+            selected_criticidad=selected_criticidad,
             dashboard_name=dashboard_name,
         )
     
     def _render_filters(self, df: pd.DataFrame) -> tuple:
         """Render filter controls and return selections."""
-        col1, col2, col3 = st.columns(3)
+        col1, col2, col3, col4 = st.columns(4)
         
         with col1:
             year_options = sorted(df["Año"].dropna().unique(), reverse=True)
@@ -347,8 +351,29 @@ class DashboardOrchestrator:
                 if team_options
                 else []
             )
+
+        with col4:
+            criticidad_options = []
+            if "Prioridad" in df.columns:
+                criticidad_options = sorted(
+                    {
+                        str(value).strip()
+                        for value in df["Prioridad"].dropna().unique()
+                        if str(value).strip()
+                    }
+                )
+            selected_criticidad = (
+                st.multiselect(
+                    "Criticidad",
+                    criticidad_options,
+                    default=[],
+                    key=self._build_widget_key("filter", "criticidad"),
+                )
+                if criticidad_options
+                else []
+            )
         
-        return selected_year, selected_client, selected_team
+        return selected_year, selected_client, selected_team, selected_criticidad
 
     def _render_usage_table(
         self,
@@ -500,12 +525,14 @@ class DashboardOrchestrator:
         selected_client: List[str],
         selected_year: Optional[int],
         selected_team: List[str],
+        selected_criticidad: List[str],
         types: List[str],
     ) -> pd.DataFrame:
-        """Apply client, year, team, and ticket type filters."""
+        """Apply client, year, team, criticidad, and ticket type filters."""
         filtered = self.filter.filter_by_client(df, selected_client)
         filtered = self.filter.filter_by_year(filtered, selected_year)
         filtered = self.filter.filter_by_team(filtered, selected_team)
+        filtered = self.filter.filter_by_criticidad(filtered, selected_criticidad)
         filtered = self.filter.filter_by_types(filtered, types)
         return filtered
 
@@ -515,6 +542,7 @@ class DashboardOrchestrator:
         selected_year: Optional[int],
         selected_client: List[str],
         selected_team: List[str],
+        selected_criticidad: List[str],
         dashboard_name: str,
     ) -> None:
         """Render export buttons for currently displayed tables."""
@@ -524,10 +552,11 @@ class DashboardOrchestrator:
         st.header("Exportación")
         team_label = ", ".join(selected_team) if selected_team else "Todos"
         client_label = ", ".join(selected_client) if selected_client else "Todos"
+        criticidad_label = ", ".join(selected_criticidad) if selected_criticidad else "Todas"
         year_label = str(int(selected_year)) if selected_year is not None else "Todos"
         filters_text = (
             f"Dashboard: {dashboard_name} | Año: {year_label} | Cliente: {client_label} | "
-            f"Team Asignado: {team_label}"
+            f"Team Asignado: {team_label} | Criticidad: {criticidad_label}"
         )
 
         cache = st.session_state.setdefault(self._build_widget_key("export", "cache"), {})
@@ -546,8 +575,9 @@ class DashboardOrchestrator:
 
         signature_parts = [
             year_label,
-            selected_client or "Todos",
+            client_label,
             team_label,
+            criticidad_label,
             str(len(export_tables)),
             f"include_charts={int(include_charts)}",
         ]
@@ -558,7 +588,7 @@ class DashboardOrchestrator:
             signature_parts.append(f"charts_count={len(self._export_charts)}")
             for chart_name, chart_fig in self._export_charts:
                 signature_parts.append(f"chart={chart_name}|fig={int(chart_fig is not None)}")
-        export_signature = "||".join(signature_parts)
+        export_signature = "||".join(str(part) for part in signature_parts)
         excel_signature = f"{export_signature}||format=excel||v=2"
         pdf_signature = f"{export_signature}||format=pdf||v=2"
 
@@ -764,14 +794,14 @@ class DashboardOrchestrator:
                     pd.DataFrame(
                         {
                             "Periodo": all_months,
-                            "Tipo": "Creados por cliente",
+                            "Tipo": "Creados",
                             "Tickets": created_counts.values,
                         }
                     ),
                     pd.DataFrame(
                         {
                             "Periodo": all_months,
-                            "Tipo": "Resueltos por Soporte N5",
+                            "Tipo": "Resueltos",
                             "Tickets": resolved_counts.values,
                         }
                     ),

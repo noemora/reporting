@@ -45,7 +45,7 @@ Se espera un Excel con columnas (insensible a mayusculas/espacios):
 3. Elige el dashboard:
    - Dashboard Soporte: incluye todas las secciones actuales.
    - Dashboard Comercial: incluye Usabilidad, Incidencias (Flujo, SLA, Módulo, Estado) y Cambios (Team, Módulo, Estado).
-4. Selecciona filtros por año, cliente y team asignado.
+4. Selecciona filtros por año, cliente, team asignado y criticidad.
 5. Revisa KPIs, tablas y tendencias.
 
 ## Estructura del proyecto

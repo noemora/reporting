@@ -198,6 +198,7 @@ class ChartRenderer:
             x="Periodo",
             y="ID del ticket",
             color=category_col,
+            color_discrete_sequence=px.colors.qualitative.Plotly,
             markers=True,
             text="ID del ticket",
             category_orders=category_orders,
@@ -233,6 +234,7 @@ class ChartRenderer:
             x="Periodo",
             y="logins",
             color="Cliente",
+            color_discrete_sequence=px.colors.qualitative.Plotly,
             markers=True,
             text="logins",
             labels={
@@ -267,6 +269,7 @@ class ChartRenderer:
             x="Periodo",
             y="Tickets",
             color="Tipo",
+            color_discrete_sequence=px.colors.qualitative.Plotly,
             markers=True,
             text="Tickets",
             labels={

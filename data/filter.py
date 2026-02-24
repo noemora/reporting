@@ -37,6 +37,16 @@ class DataFilter:
         if not team or "Team Asignado" not in df.columns:
             return df
         return df[df["Team Asignado"].isin(team)]
+
+    def filter_by_criticidad(self, df: pd.DataFrame, criticidades: List[str]) -> pd.DataFrame:
+        """Filter data by criticidad/prioridad."""
+        if not criticidades or "Prioridad" not in df.columns:
+            return df
+        normalized_selected = {str(value).strip() for value in criticidades if str(value).strip()}
+        if not normalized_selected:
+            return df
+        prioridad = df["Prioridad"].astype(str).str.strip()
+        return df[prioridad.isin(normalized_selected)]
     
     def filter_by_types(self, df: pd.DataFrame, types: List[str]) -> pd.DataFrame:
         """Filter data by ticket types."""

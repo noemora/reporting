@@ -119,7 +119,15 @@ class ExportBuilder:
         from reportlab.lib.styles import getSampleStyleSheet
         from reportlab.lib.units import mm
         from reportlab.platypus import Image as RLImage
-        from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+        from reportlab.platypus import (
+            CondPageBreak,
+            KeepTogether,
+            Paragraph,
+            SimpleDocTemplate,
+            Spacer,
+            Table,
+            TableStyle,
+        )
 
         output = BytesIO()
         doc = SimpleDocTemplate(
@@ -144,7 +152,7 @@ class ExportBuilder:
         for name, table in tables:
             if table is None or table.empty:
                 continue
-            story.append(Paragraph(name, styles["Heading3"]))
+            section_story = [Paragraph(name, styles["Heading3"])]
 
             export_table = table.reset_index().copy()
             export_table = export_table.fillna("").astype(str)
@@ -161,28 +169,42 @@ class ExportBuilder:
                         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#EAEAEA")),
                         ("TEXTCOLOR", (0, 0), (-1, 0), colors.black),
                         ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                        ("FONTSIZE", (0, 0), (-1, -1), 7),
+                        ("FONTSIZE", (0, 0), (-1, -1), 10),
                         ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
                         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
                     ]
                 )
             )
-            story.append(pdf_table)
+            section_story.append(Spacer(1, 1.5 * mm))
+            section_story.append(pdf_table)
 
             chart_idx = ExportBuilder._pick_chart_index(name, chart_entries, consumed_chart_indexes)
+            has_chart = chart_idx is not None
             if chart_idx is not None:
                 chart_name, chart_fig = chart_entries[chart_idx]
                 consumed_chart_indexes.add(chart_idx)
-                story.append(Spacer(1, 2 * mm))
-                story.append(Paragraph(f"Gráfico: {chart_name}", styles["Normal"]))
+                section_story.append(Spacer(1, 2 * mm))
+                section_story.append(Paragraph(f"Gráfico: {chart_name}", styles["Normal"]))
                 chart_bytes = ExportBuilder._figure_to_pdf_image_bytes(chart_fig)
                 if chart_bytes is None:
-                    story.append(Paragraph("No se pudo renderizar este gráfico.", styles["Normal"]))
+                    section_story.append(Paragraph("No se pudo renderizar este gráfico.", styles["Normal"]))
                 else:
                     chart_image = RLImage(BytesIO(chart_bytes), width=240 * mm, height=82 * mm)
-                    story.append(chart_image)
+                    section_story.append(chart_image)
 
-            story.append(Spacer(1, 6 * mm))
+            section_story.append(Spacer(1, 6 * mm))
+            estimated_height = ExportBuilder._estimate_pdf_section_height(
+                row_count=len(rows),
+                has_chart=has_chart,
+            )
+            max_keep_together_height = 170 * mm
+            if estimated_height <= max_keep_together_height:
+                story.append(CondPageBreak(estimated_height))
+                story.append(KeepTogether(section_story))
+            else:
+                min_start_section_height = 24 * mm
+                story.append(CondPageBreak(min_start_section_height))
+                story.extend(section_story)
 
         doc.build(story)
         output.seek(0)
@@ -312,6 +334,17 @@ class ExportBuilder:
 
         factor = total_width / bounded_sum
         return [width * factor for width in bounded]
+
+    @staticmethod
+    def _estimate_pdf_section_height(row_count: int, has_chart: bool) -> float:
+        """Estimate section height to trigger proactive page breaks when needed."""
+        from reportlab.lib.units import mm
+
+        title_height = 8 * mm
+        table_height = max((row_count + 1) * (5.6 * mm), 16 * mm)
+        chart_height = (90 * mm) if has_chart else 0
+        bottom_spacing = 6 * mm
+        return title_height + table_height + chart_height + bottom_spacing
 
     @staticmethod
     def _name_tokens(name: str) -> set[str]:
