@@ -52,8 +52,16 @@ Se espera un Excel con columnas (insensible a mayusculas/espacios):
 - app.py: punto de entrada y coordinacion de componentes.
 - config/: configuracion central (columnas requeridas, meses, estados resueltos).
 - data/: carga, validacion, normalizacion, preprocesamiento y filtros.
-- dashboard/: orquestacion de secciones y KPIs.
+- dashboard/: orquestacion y renderizado modular de secciones y KPIs.
+   - orchestrator.py: coordinacion del flujo (filtros, secciones, exportacion).
+   - usage_renderer.py: render de usabilidad (logins).
+   - sections_renderer.py: fachada de secciones KPI.
+   - distribution_renderer.py: KPIs de distribución (flujo, team, cliente, criticidad, módulo, ambiente).
+   - status_renderer.py: KPIs de estado.
+   - sla_renderer.py: KPIs de SLA y SLA por criticidad.
+   - section_renderer_base.py: helpers compartidos de runtime para renderers.
 - services/: builders para tablas y calculos de apoyo.
+   - export_state_manager.py: estado/cache/firma de exportaciones.
 - ui/: render de graficos y componentes de interfaz.
 - utils/: utilidades de normalizacion de texto.
 
