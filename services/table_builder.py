@@ -77,13 +77,14 @@ class TableBuilder:
         else:
             within_row = pd.Series({col: 0 for col in month_cols})
 
-        # % Fuera de SLA = Incumplido / Cumplido
-        percent_row = violated_row[month_cols] / within_row[month_cols].replace(0, pd.NA)
-        
+        # % Fuera de SLA = Incumplido / (Cumplido + Incumplido)
+        denominator_row = within_row[month_cols] + violated_row[month_cols]
+        percent_row = violated_row[month_cols] / denominator_row.replace(0, pd.NA)
+
         total_within = within_row[month_cols].sum()
-        percent_total = (
-            violated_row[month_cols].sum() / total_within if total_within else 0
-        )
+        total_violated = violated_row[month_cols].sum()
+        total_classified = total_within + total_violated
+        percent_total = total_violated / total_classified if total_classified else 0
         
         percent_values = [
             f"{value * 100:.1f}%" if pd.notna(value) else "0.0%"
