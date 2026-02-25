@@ -71,10 +71,12 @@ class ChartRenderer:
                 str_value = str(value).strip().lower()
                 if not str_value or str_value == "nan" or str_value == "":
                     return "Sin estado de resolución"
-                elif str_value == "within sla":
+                elif str_value in {"within sla", "cumplido", "en sla", "dentro de sla"}:
                     return "Cumplido"
-                elif str_value == "sla violated":
+                elif str_value in {"sla violated", "incumplido", "fuera de sla"}:
                     return "Incumplido"
+                elif str_value in {"resuelto", "resolved", "solucionado", "cerrado", "closed"}:
+                    return "Resuelto"
                 else:
                     return value
             

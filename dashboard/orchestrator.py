@@ -1,5 +1,5 @@
 """Dashboard orchestration and coordination."""
-from typing import List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 import pandas as pd
 import streamlit as st
 
@@ -12,6 +12,7 @@ from utils import TextNormalizer
 
 class DashboardOrchestrator:
     """Orchestrates the entire dashboard rendering process."""
+    SUPPORT_TEAM_UNIFIED_LABEL = "Soporte"
     
     def __init__(self, config: AppConfig):
         self.config = config
@@ -35,6 +36,75 @@ class DashboardOrchestrator:
             if str(state).strip()
         }
 
+    def _normalize_estado_for_display(self, estado: pd.Series) -> pd.Series:
+        """Normalize Estado values to consistent Spanish labels for display."""
+        estado_raw = estado.astype("string").str.strip()
+        estado_norm = (
+            estado_raw.fillna("")
+            .map(TextNormalizer.remove_accents)
+            .str.strip()
+            .str.lower()
+        )
+
+        normalized = pd.Series(pd.NA, index=estado_raw.index, dtype="object")
+
+        resolved_states = self._normalized_resolved_states()
+        normalized = normalized.mask(estado_norm.isin(resolved_states), "Resuelto")
+
+        exact_map = {
+            "pendiente": "Pendiente",
+            "pending": "Pendiente",
+            "abierto": "Abierto",
+            "open": "Abierto",
+            "nuevo": "Nuevo",
+            "new": "Nuevo",
+            "en progreso": "En progreso",
+            "in progress": "En progreso",
+            "en espera": "En espera",
+            "on hold": "En espera",
+            "hold": "En espera",
+            "cancelado": "Cancelado",
+            "cancelada": "Cancelado",
+            "cancelled": "Cancelado",
+            "canceled": "Cancelado",
+            "reabierto": "Reabierto",
+            "re-opened": "Reabierto",
+            "reopened": "Reabierto",
+        }
+        normalized = normalized.fillna(estado_norm.map(exact_map))
+
+        normalized = normalized.mask(
+            normalized.isna() & estado_norm.str.contains(r"progreso|progress", na=False),
+            "En progreso",
+        )
+        normalized = normalized.mask(
+            normalized.isna() & estado_norm.str.contains(r"espera|waiting|hold", na=False),
+            "En espera",
+        )
+        normalized = normalized.mask(
+            normalized.isna() & estado_norm.str.contains(r"pendient|pending", na=False),
+            "Pendiente",
+        )
+        normalized = normalized.mask(
+            normalized.isna() & estado_norm.str.contains(r"cancel", na=False),
+            "Cancelado",
+        )
+        normalized = normalized.mask(
+            normalized.isna() & estado_norm.str.contains(r"reabiert|reopen", na=False),
+            "Reabierto",
+        )
+
+        fallback = (
+            estado_raw
+            .map(TextNormalizer.fix_mojibake)
+            .str.replace(r"\s+", " ", regex=True)
+            .str.strip()
+            .str.title()
+        )
+        normalized = normalized.fillna(fallback)
+        normalized = normalized.mask(normalized.isna() | normalized.eq(""), pd.NA)
+        return normalized
+
     def _build_estado_grouped(self, df: pd.DataFrame, target_col: str) -> pd.DataFrame:
         """Group all configured resolved states into 'Resuelto'."""
         grouped_df = df.copy()
@@ -42,14 +112,7 @@ class DashboardOrchestrator:
             grouped_df[target_col] = pd.NA
             return grouped_df
 
-        estado_series = grouped_df["Estado"].astype("string").str.strip()
-        estado_norm = estado_series.str.lower()
-        estado_grouped = estado_series.mask(
-            estado_norm.isin(self._normalized_resolved_states()),
-            "Resuelto",
-        )
-        estado_grouped = estado_grouped.mask(estado_grouped.isna() | estado_grouped.eq(""), pd.NA)
-        grouped_df[target_col] = estado_grouped
+        grouped_df[target_col] = self._normalize_estado_for_display(grouped_df["Estado"])
         return grouped_df
 
     def _build_resolved_mask(self, df: pd.DataFrame) -> pd.Series:
@@ -62,6 +125,54 @@ class DashboardOrchestrator:
         )
         return resolved_estado | resolved_estado_resolucion
 
+    def _normalize_resolution_status_for_display(self, resolution: pd.Series) -> pd.Series:
+        """Normalize Estado de resolucion values to Spanish labels for display."""
+        resolution_raw = resolution.astype("string").str.strip()
+        resolution_norm = (
+            resolution_raw.fillna("")
+            .map(TextNormalizer.remove_accents)
+            .str.strip()
+            .str.lower()
+        )
+
+        normalized = pd.Series(pd.NA, index=resolution_raw.index, dtype="object")
+        normalized = normalized.mask(
+            resolution_norm.isin({"within sla", "cumplido", "en sla", "dentro de sla"}),
+            "Cumplido",
+        )
+        normalized = normalized.mask(
+            resolution_norm.isin({"sla violated", "incumplido", "fuera de sla"}),
+            "Incumplido",
+        )
+        normalized = normalized.mask(
+            resolution_norm.isin({"resuelto", "resolved", "solucionado", "cerrado", "closed"}),
+            "Resuelto",
+        )
+
+        normalized = normalized.mask(
+            normalized.isna() & resolution_norm.str.contains(r"within\s*sla|dentro\s*de\s*sla", na=False),
+            "Cumplido",
+        )
+        normalized = normalized.mask(
+            normalized.isna() & resolution_norm.str.contains(r"violat|incumpl|fuera\s*de\s*sla", na=False),
+            "Incumplido",
+        )
+
+        normalized = normalized.mask(
+            normalized.isna() & (resolution_raw.isna() | resolution_raw.eq("")),
+            "Sin estado de resolución",
+        )
+        fallback = (
+            resolution_raw
+            .map(TextNormalizer.fix_mojibake)
+            .str.replace(r"\s+", " ", regex=True)
+            .str.strip()
+            .str.title()
+        )
+        normalized = normalized.fillna(fallback)
+        normalized = normalized.fillna("Sin estado de resolución")
+        return normalized
+
     def _build_widget_key(self, *parts: str) -> str:
         """Build a stable and unique Streamlit key for the active dashboard context."""
         normalized_parts = [
@@ -72,6 +183,66 @@ class DashboardOrchestrator:
         if not normalized_parts:
             return self._widget_prefix
         return "_".join([self._widget_prefix, *normalized_parts])
+
+    def _is_support_team_value(self, value: str) -> bool:
+        """Return True when a Team Asignado value belongs to support teams."""
+        raw_value = str(value).strip()
+        if not raw_value:
+            return False
+        normalized = TextNormalizer.remove_accents(raw_value).lower()
+        normalized = " ".join(normalized.split())
+        return "soporte" in normalized or "support" in normalized
+
+    def _build_team_filter_config(
+        self,
+        df: pd.DataFrame,
+        commercial_mode: bool,
+    ) -> Tuple[List[str], Dict[str, List[str]]]:
+        """Build Team Asignado filter options and the label-to-values map."""
+        if "Team Asignado" not in df.columns:
+            return [], {}
+
+        team_values = sorted(
+            {
+                value
+                for value in df["Team Asignado"].dropna().astype(str).str.strip()
+                if str(value).strip()
+            }
+        )
+        if not team_values:
+            return [], {}
+
+        if not commercial_mode:
+            return team_values, {value: [value] for value in team_values}
+
+        support_teams = [value for value in team_values if self._is_support_team_value(value)]
+        non_support_teams = [value for value in team_values if value not in support_teams]
+
+        options = list(non_support_teams)
+        option_map = {value: [value] for value in non_support_teams}
+        if support_teams:
+            options.append(self.SUPPORT_TEAM_UNIFIED_LABEL)
+            option_map[self.SUPPORT_TEAM_UNIFIED_LABEL] = support_teams
+
+        options = sorted(
+            options,
+            key=lambda value: TextNormalizer.remove_accents(str(value)).lower(),
+        )
+        return options, option_map
+
+    @staticmethod
+    def _resolve_selected_team_values(
+        selected_team_labels: List[str],
+        option_map: Dict[str, List[str]],
+    ) -> List[str]:
+        """Resolve selected Team Asignado labels into raw source values."""
+        if not selected_team_labels:
+            return []
+
+        resolved_values: List[str] = []
+        for label in selected_team_labels:
+            resolved_values.extend(option_map.get(label, [label]))
+        return list(dict.fromkeys(resolved_values))
     
     def render_dashboard(
         self,
@@ -89,7 +260,13 @@ class DashboardOrchestrator:
         st.header(dashboard_name)
         # Render filters
         st.subheader("Filtros")
-        selected_year, selected_client, selected_team, selected_criticidad = self._render_filters(df)
+        (
+            selected_year,
+            selected_client,
+            selected_team_labels,
+            selected_team_values,
+            selected_criticidad,
+        ) = self._render_filters(df, commercial_mode=is_commercial_dashboard)
         export_tables: List[Tuple[str, pd.DataFrame]] = []
 
         usage_table = self._render_usage_table(usage_df, selected_year, selected_client)
@@ -97,7 +274,7 @@ class DashboardOrchestrator:
             export_tables.append(("Usabilidad - Actividad", usage_table))
         
         base_filtered = self.filter.filter_by_client(df, selected_client)
-        base_filtered = self.filter.filter_by_team(base_filtered, selected_team)
+        base_filtered = self.filter.filter_by_team(base_filtered, selected_team_values)
         base_filtered = self.filter.filter_by_criticidad(base_filtered, selected_criticidad)
         base_filtered = self.filter.filter_by_types(
             base_filtered, ["Consulta de informacion", "Incidencia"]
@@ -193,7 +370,7 @@ class DashboardOrchestrator:
                 export_tables.append(("Consulta e Incidencias - Estado", estado_table))
 
         cambio_base = self.filter.filter_by_client(df, selected_client)
-        cambio_base = self.filter.filter_by_team(cambio_base, selected_team)
+        cambio_base = self.filter.filter_by_team(cambio_base, selected_team_values)
         cambio_base = self.filter.filter_by_criticidad(cambio_base, selected_criticidad)
         cambio_base = self.filter.filter_by_types(cambio_base, ["Cambio"])
         cambios_prod_only = is_commercial_dashboard
@@ -244,14 +421,14 @@ class DashboardOrchestrator:
                 prod_only=cambios_prod_only,
                 export_chart_label="Cambios - Estado",
                 chart_key_suffix="cambios_estado",
-                commercial_mode=is_commercial_dashboard,
+                commercial_mode=False,
             )
             if estado_cambio is not None:
                 export_tables.append(("Cambios - Estado", estado_cambio))
 
         if not is_commercial_dashboard:
             internos_base = self.filter.filter_by_client(df, selected_client)
-            internos_base = self.filter.filter_by_team(internos_base, selected_team)
+            internos_base = self.filter.filter_by_team(internos_base, selected_team_values)
             internos_base = self.filter.filter_by_criticidad(internos_base, selected_criticidad)
             internos_base = self.filter.filter_by_types(internos_base, ["Interno"])
 
@@ -296,12 +473,12 @@ class DashboardOrchestrator:
             export_tables,
             selected_year=selected_year,
             selected_client=selected_client,
-            selected_team=selected_team,
+            selected_team=selected_team_labels,
             selected_criticidad=selected_criticidad,
             dashboard_name=dashboard_name,
         )
     
-    def _render_filters(self, df: pd.DataFrame) -> tuple:
+    def _render_filters(self, df: pd.DataFrame, commercial_mode: bool = False) -> tuple:
         """Render filter controls and return selections."""
         col1, col2, col3, col4 = st.columns(4)
         
@@ -340,8 +517,8 @@ class DashboardOrchestrator:
             )
         
         with col3:
-            team_options = sorted(df["Team Asignado"].dropna().unique())
-            selected_team = (
+            team_options, team_option_map = self._build_team_filter_config(df, commercial_mode)
+            selected_team_labels = (
                 st.multiselect(
                     "Team Asignado",
                     team_options,
@@ -350,6 +527,10 @@ class DashboardOrchestrator:
                 )
                 if team_options
                 else []
+            )
+            selected_team_values = self._resolve_selected_team_values(
+                selected_team_labels,
+                team_option_map,
             )
 
         with col4:
@@ -365,7 +546,7 @@ class DashboardOrchestrator:
                 else []
             )
         
-        return selected_year, selected_client, selected_team, selected_criticidad
+        return selected_year, selected_client, selected_team_labels, selected_team_values, selected_criticidad
 
     def _render_usage_table(
         self,
@@ -1488,23 +1669,12 @@ class DashboardOrchestrator:
 
             sla_prod = sla_prod.copy()
             sla_prod["Mes"] = pd.to_datetime(sla_prod["Hora de resolucion"], errors="coerce").dt.month
+            sla_prod["Estado de resolucion"] = self._normalize_resolution_status_for_display(
+                sla_prod["Estado de resolucion"]
+            )
 
             pivot = self.table_builder.build_pivot_table(
                 sla_prod, "Estado de resolucion", "Sin estado de resolución"
-            )
-            pivot = pivot.rename(
-                index={
-                    label: "Cumplido"
-                    for label in pivot.index
-                    if str(label).strip().lower() == "within sla"
-                }
-            )
-            pivot = pivot.rename(
-                index={
-                    label: "Incumplido"
-                    for label in pivot.index
-                    if str(label).strip().lower() == "sla violated"
-                }
             )
             pivot = self.table_builder.add_sla_percentage_row(pivot)
             year_row = pd.DataFrame(
@@ -1541,6 +1711,9 @@ class DashboardOrchestrator:
                 pd.to_datetime(chart_df["Hora de resolucion"], errors="coerce")
                 .dt.to_period("M")
                 .dt.to_timestamp()
+            )
+            chart_df["Estado de resolucion"] = self._normalize_resolution_status_for_display(
+                chart_df["Estado de resolucion"]
             )
             sla_fig = self.chart_renderer.render_trend_chart(
                 chart_df,
@@ -1617,10 +1790,10 @@ class DashboardOrchestrator:
                 continue
 
             sla_prod = sla_prod.copy()
-            estado_norm = sla_prod["Estado de resolucion"].astype(str).str.strip().str.lower()
-            sla_prod["SLA Estado"] = ""
-            sla_prod.loc[estado_norm == "within sla", "SLA Estado"] = "Cumplido"
-            sla_prod.loc[estado_norm == "sla violated", "SLA Estado"] = "Incumplido"
+            sla_prod["Estado de resolucion"] = self._normalize_resolution_status_for_display(
+                sla_prod["Estado de resolucion"]
+            )
+            sla_prod["SLA Estado"] = sla_prod["Estado de resolucion"]
             sla_prod = sla_prod[sla_prod["SLA Estado"].isin(["Cumplido", "Incumplido"])]
             if sla_prod.empty:
                 st.info(f"ℹ️ No hay datos de SLA para el año {year}. Se muestran valores en 0.")
