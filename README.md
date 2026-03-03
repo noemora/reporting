@@ -13,6 +13,29 @@ Aplicacion en Streamlit para cargar el reporte comercial y un archivo de logins,
 ## Ejecucion
 - `streamlit run app.py`
 
+## Docker (entorno reproducible)
+Se incluye una imagen Docker basada en Python `3.11.9` con dependencias bloqueadas en `requirements.lock.txt`.
+
+### Levantar la app
+1. Construir y levantar:
+   - `docker compose up --build -d`
+2. Abrir en navegador:
+   - `http://localhost:8501`
+
+### Ver logs
+- `docker compose logs -f`
+
+### Detener
+- `docker compose down`
+
+### Rebuild forzado (si cambian dependencias)
+- `docker compose build --no-cache`
+- `docker compose up -d`
+
+### Nota sobre archivos de datos
+- `datasources/` se excluye del contexto de build (`.dockerignore`) para no copiar datos locales al contenedor.
+- Si necesitas montar datos locales en runtime, puedes agregar un volumen en `docker-compose.yml`.
+
 ## Archivos de entrada
 ### Reporte comercial
 Se espera un Excel con las columnas (los nombres se normalizan automaticamente):
@@ -68,4 +91,5 @@ Se espera un Excel con columnas (insensible a mayusculas/espacios):
 ## Configuracion
 - Actualiza los catalogos en config/settings.py para columnas, meses, estados resueltos y ambientes productivos.
 - Si agregas KPIs, ajusta dashboard/orchestrator.py y los helpers de services/ y ui/.
+- Si actualizas librerias del entorno local, regenera y versiona `requirements.lock.txt` para mantener la reproducibilidad entre equipos.
 
