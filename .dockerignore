@@ -1,0 +1,16 @@
+.git
+.gitignore
+.venv
+__pycache__
+**/__pycache__
+.pytest_cache
+.mypy_cache
+.vscode
+.DS_Store
+*.pyc
+*.pyo
+*.pyd
+*.log
+*.tmp
+*.temp
+datasources/

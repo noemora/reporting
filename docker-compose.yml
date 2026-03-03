@@ -1,0 +1,12 @@
+services:
+  kpi-streamlit:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: kpi-streamlit
+    ports:
+      - "8501:8501"
+    environment:
+      STREAMLIT_BROWSER_GATHER_USAGE_STATS: "false"
+      TZ: "America/Bogota"
+    restart: unless-stopped
