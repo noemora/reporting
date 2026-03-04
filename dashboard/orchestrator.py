@@ -303,79 +303,111 @@ class DashboardOrchestrator:
     def _render_filters(self, df: pd.DataFrame, commercial_mode: bool = False) -> tuple:
         """Render filter controls and return selections."""
         st.caption("Ajusta los filtros y haz clic en 'Aplicar filtros' para actualizar el dashboard.")
-        with st.form(key=self._build_widget_key("filter", "form"), border=False):
-            col1, col2, col3, col4 = st.columns(4)
+        applied_signature_key = self._build_widget_key("filter", "applied_signature")
+        applied_values_key = self._build_widget_key("filter", "applied_values")
+        col1, col2, col3, col4 = st.columns(4)
 
-            with col1:
-                year_options = sorted(df["Año"].dropna().unique(), reverse=True)
-                current_year = pd.Timestamp.today().year
-                year_index = 0
-                if year_options:
-                    year_index = min(
-                        range(len(year_options)),
-                        key=lambda idx: abs(year_options[idx] - current_year),
-                    )
-                selected_year = (
-                    st.selectbox(
-                        "Año",
-                        year_options,
-                        index=year_index,
-                        key=self._build_widget_key("filter", "year"),
-                        format_func=lambda value: f"{int(value) - 1} - {int(value)}",
-                    )
-                    if year_options
-                    else None
+        with col1:
+            year_options = sorted(df["Año"].dropna().unique(), reverse=True)
+            current_year = pd.Timestamp.today().year
+            year_index = 0
+            if year_options:
+                year_index = min(
+                    range(len(year_options)),
+                    key=lambda idx: abs(year_options[idx] - current_year),
                 )
-
-            with col2:
-                client_options = sorted(df["Grupo"].dropna().unique())
-                selected_client = (
-                    st.multiselect(
-                        "Cliente (Grupo)",
-                        client_options,
-                        default=[],
-                        key=self._build_widget_key("filter", "cliente"),
-                    )
-                    if client_options
-                    else []
+            selected_year = (
+                st.selectbox(
+                    "Año",
+                    year_options,
+                    index=year_index,
+                    key=self._build_widget_key("filter", "year"),
+                    format_func=lambda value: f"{int(value) - 1} - {int(value)}",
                 )
-
-            with col3:
-                team_options, team_option_map = self.team_filter_helper.build_team_filter_config(df, commercial_mode)
-                selected_team_labels = (
-                    st.multiselect(
-                        "Team Asignado",
-                        team_options,
-                        default=[],
-                        key=self._build_widget_key("filter", "team"),
-                    )
-                    if team_options
-                    else []
-                )
-                selected_team_values = self.team_filter_helper.resolve_selected_team_values(
-                    selected_team_labels,
-                    team_option_map,
-                )
-
-            with col4:
-                criticidad_options = self.filter.get_criticidad_options(df)
-                selected_criticidad = (
-                    st.multiselect(
-                        "Criticidad",
-                        criticidad_options,
-                        default=[],
-                        key=self._build_widget_key("filter", "criticidad"),
-                    )
-                    if criticidad_options
-                    else []
-                )
-
-            st.form_submit_button(
-                "Aplicar filtros",
-                use_container_width=False,
+                if year_options
+                else None
             )
 
-        return selected_year, selected_client, selected_team_labels, selected_team_values, selected_criticidad
+        with col2:
+            client_options = sorted(df["Grupo"].dropna().unique())
+            selected_client = (
+                st.multiselect(
+                    "Cliente (Grupo)",
+                    client_options,
+                    default=[],
+                    key=self._build_widget_key("filter", "cliente"),
+                )
+                if client_options
+                else []
+            )
+
+        with col3:
+            team_options, team_option_map = self.team_filter_helper.build_team_filter_config(df, commercial_mode)
+            selected_team_labels = (
+                st.multiselect(
+                    "Team Asignado",
+                    team_options,
+                    default=[],
+                    key=self._build_widget_key("filter", "team"),
+                )
+                if team_options
+                else []
+            )
+
+        with col4:
+            criticidad_options = self.filter.get_criticidad_options(df)
+            selected_criticidad = (
+                st.multiselect(
+                    "Criticidad",
+                    criticidad_options,
+                    default=[],
+                    key=self._build_widget_key("filter", "criticidad"),
+                )
+                if criticidad_options
+                else []
+            )
+
+        current_signature = (
+            selected_year,
+            tuple(selected_client),
+            tuple(selected_team_labels),
+            tuple(selected_criticidad),
+        )
+        if applied_signature_key not in st.session_state:
+            st.session_state[applied_signature_key] = current_signature
+            st.session_state[applied_values_key] = {
+                "selected_year": selected_year,
+                "selected_client": list(selected_client),
+                "selected_team_labels": list(selected_team_labels),
+                "selected_criticidad": list(selected_criticidad),
+            }
+
+        has_changes = st.session_state.get(applied_signature_key) != current_signature
+        submitted = st.button(
+            "Aplicar filtros",
+            disabled=not has_changes,
+            key=self._build_widget_key("filter", "apply"),
+        )
+        if submitted:
+            st.session_state[applied_signature_key] = current_signature
+            st.session_state[applied_values_key] = {
+                "selected_year": selected_year,
+                "selected_client": list(selected_client),
+                "selected_team_labels": list(selected_team_labels),
+                "selected_criticidad": list(selected_criticidad),
+            }
+
+        applied_values = st.session_state.get(applied_values_key, {})
+        applied_year = applied_values.get("selected_year")
+        applied_client = applied_values.get("selected_client", [])
+        applied_team_labels = applied_values.get("selected_team_labels", [])
+        applied_criticidad = applied_values.get("selected_criticidad", [])
+        applied_team_values = self.team_filter_helper.resolve_selected_team_values(
+            applied_team_labels,
+            team_option_map,
+        )
+
+        return applied_year, applied_client, applied_team_labels, applied_team_values, applied_criticidad
 
     def _render_export_section(
         self,
