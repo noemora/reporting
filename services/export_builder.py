@@ -1,16 +1,52 @@
 """Export utilities for dashboard tables."""
 from __future__ import annotations
 
+import concurrent.futures
 import copy
+from functools import lru_cache
+import hashlib
 from io import BytesIO
 import re
+import threading
 from typing import Any, List, Optional, Tuple
 
 import pandas as pd
+import plotly.io as pio
 
 
 class ExportBuilder:
     """Builds export files (Excel and PDF) from dashboard tables."""
+
+    _warmup_executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)
+    _warmup_lock = threading.Lock()
+    _warmup_jobs: dict[str, concurrent.futures.Future] = {}
+
+    @staticmethod
+    def warm_chart_cache_async(charts: Optional[List[Tuple[str, Any]]]) -> None:
+        """Warm chart raster cache in background to speed up later exports."""
+        chart_entries = list(charts or [])
+        if not chart_entries:
+            return
+
+        with ExportBuilder._warmup_lock:
+            finished_keys = [
+                key for key, future in ExportBuilder._warmup_jobs.items() if future.done()
+            ]
+            for key in finished_keys:
+                ExportBuilder._warmup_jobs.pop(key, None)
+
+            for _, chart_fig in chart_entries:
+                fig_json = ExportBuilder._figure_to_json(chart_fig)
+                if fig_json is None:
+                    continue
+                cache_key = ExportBuilder._hash_text(fig_json)
+                if cache_key in ExportBuilder._warmup_jobs:
+                    continue
+                future = ExportBuilder._warmup_executor.submit(
+                    ExportBuilder._build_cached_chart_images,
+                    fig_json,
+                )
+                ExportBuilder._warmup_jobs[cache_key] = future
 
     @staticmethod
     def build_excel_bytes(
@@ -228,6 +264,13 @@ class ExportBuilder:
         """Convert a Plotly figure to PNG bytes for file export."""
         if fig is None:
             return None
+        fig_json = ExportBuilder._figure_to_json(fig)
+        if fig_json is not None:
+            try:
+                png_bytes, _ = ExportBuilder._build_cached_chart_images(fig_json)
+                return png_bytes
+            except Exception:
+                pass
         try:
             export_fig, width_px, height_px = ExportBuilder._prepare_figure_for_export(fig)
             return export_fig.to_image(format="png", width=width_px, height=height_px, scale=1)
@@ -239,6 +282,13 @@ class ExportBuilder:
         """Convert a Plotly figure to compressed bytes optimized for PDF memory usage."""
         if fig is None:
             return None
+        fig_json = ExportBuilder._figure_to_json(fig)
+        if fig_json is not None:
+            try:
+                _, pdf_bytes = ExportBuilder._build_cached_chart_images(fig_json)
+                return pdf_bytes
+            except Exception:
+                pass
         try:
             export_fig, width_px, height_px = ExportBuilder._prepare_figure_for_export(fig)
             png_bytes = export_fig.to_image(format="png", width=width_px, height=height_px, scale=1)
@@ -378,6 +428,64 @@ class ExportBuilder:
             ),
         )
         return export_fig, width_px, height_px
+
+    @staticmethod
+    def _figure_to_json(fig: Any) -> Optional[str]:
+        """Serialize a chart to JSON for deterministic export-image caching."""
+        if fig is None:
+            return None
+        try:
+            return fig.to_json()
+        except Exception:
+            return None
+
+    @staticmethod
+    @lru_cache(maxsize=256)
+    def _build_cached_chart_images(fig_json: str) -> Tuple[Optional[bytes], Optional[bytes]]:
+        """Build and cache PNG/JPEG chart images from a serialized Plotly figure."""
+        try:
+            fig = pio.from_json(fig_json)
+            legend_items = ExportBuilder._count_legend_items(fig)
+            extra_height = max(0, legend_items - 7) * 36
+            height_px = min(1100, 520 + extra_height)
+            width_px = 1350
+
+            fig.update_layout(
+                autosize=False,
+                width=width_px,
+                height=height_px,
+                margin=dict(l=40, r=240, t=80, b=65),
+                legend=dict(
+                    orientation="v",
+                    x=1.02,
+                    xanchor="left",
+                    y=1,
+                    yanchor="top",
+                    itemsizing="constant",
+                    tracegroupgap=4,
+                ),
+            )
+            png_bytes = fig.to_image(format="png", width=width_px, height=height_px, scale=1)
+        except Exception:
+            return None, None
+
+        try:
+            from PIL import Image
+
+            with Image.open(BytesIO(png_bytes)) as image:
+                if image.mode in ("RGBA", "P"):
+                    image = image.convert("RGB")
+                optimized = BytesIO()
+                image.save(optimized, format="JPEG", quality=70, optimize=True)
+                optimized.seek(0)
+                return png_bytes, optimized.getvalue()
+        except Exception:
+            return png_bytes, png_bytes
+
+    @staticmethod
+    def _hash_text(content: str) -> str:
+        """Return a stable hash for lightweight in-memory job tracking."""
+        return hashlib.sha1(content.encode("utf-8")).hexdigest()
 
     @staticmethod
     def _calculate_pdf_chart_height_mm(fig: Any) -> float:

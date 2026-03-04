@@ -398,7 +398,7 @@ class DashboardOrchestrator:
 
         include_charts = st.toggle(
             "Incluir gráficos en exportación",
-            value=False,
+            value=True,
             help="Activado: incluye gráficos (consume más memoria, especialmente en PDF). Desactivado: solo tablas (más estable y rápido).",
             disabled=is_busy,
             key=self._build_widget_key("export", "include_charts"),
@@ -410,6 +410,9 @@ class DashboardOrchestrator:
             chart_payload=chart_payload,
             labels=labels,
         )
+        if chart_payload and cache.get("chart_warmup_signature") != excel_signature:
+            self.export_builder.warm_chart_cache_async(chart_payload)
+            cache["chart_warmup_signature"] = excel_signature
         self.export_state_manager.reset_cache_if_signature_changed(
             cache=cache,
             excel_signature=excel_signature,
