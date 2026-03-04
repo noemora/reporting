@@ -1,12 +1,14 @@
 # Sistema de Informes Gerenciales de Tickets
 
-Aplicacion en Streamlit para cargar el reporte comercial y un archivo de logins, aplicar filtros y mostrar KPIs, tablas y tendencias.
+Aplicacion en Streamlit para reporte gerenciales, en el que se puede aplicar filtros y mostrar KPIs, tablas y tendencias.
 
 ## Requisitos
-- Python 3.9+
+- Python 3.11.9
 
-## Instalacion
+## Instalacion local
 1. Crear y activar un entorno virtual.
+   - `python -m venv .venv` o
+   - `py -m venv .venv`
 2. Instalar dependencias:
    - `pip install -r requirements.txt`
 
@@ -66,8 +68,8 @@ Se espera un Excel con columnas (insensible a mayusculas/espacios):
 1. Ejecuta la app.
 2. Carga ambos archivos.
 3. Elige el dashboard:
-   - Dashboard Soporte: incluye todas las secciones actuales.
-   - Dashboard Comercial: incluye Usabilidad, Incidencias (Flujo, SLA, Módulo, Estado) y Cambios (Team, Módulo, Estado).
+   - Dashboard Soporte: incluye Usabilidad, Incidencias (Flujo, Cliente, Team Asignado, Criticidad, SLA, SLA por criticidad, Modulo, Ambiente, Estado), Cambios (Cliente, Team, Módulo, Estado) y Mejoras (Team, Módulo, Estado).
+   - Dashboard Comercial: incluye Usabilidad, Incidencias (Flujo, Cliente, Criticidad, SLA, SLA por criticidad, Módulo, Estado) y Cambios (Cliente, Módulo, Estado).
 4. Selecciona filtros por año, cliente, team asignado y criticidad.
 5. Revisa KPIs, tablas y tendencias.
 

@@ -194,6 +194,7 @@ class ChartRenderer:
         category_order: Optional[List[str]] = None,
     ) -> px.line:
         """Create a plotly line chart."""
+        y_axis_max = self._calculate_y_axis_max(trend, "ID del ticket")
         category_orders = {category_col: category_order} if category_order else None
         fig = px.line(
             trend,
@@ -222,8 +223,9 @@ class ChartRenderer:
         fig.update_layout(
             template="plotly_white",
             height=350,
-            margin=dict(l=20, r=20, t=40, b=20),
+            margin=dict(l=20, r=20, t=70, b=20),
             xaxis=dict(tickmode="array", tickvals=tick_vals, ticktext=tick_text),
+            yaxis=dict(rangemode="tozero", range=[0, y_axis_max], automargin=True),
         )
         self._apply_readable_chart_layout(fig)
         
@@ -231,6 +233,7 @@ class ChartRenderer:
 
     def _create_usage_line_chart(self, trend: pd.DataFrame) -> px.line:
         """Create a plotly line chart for logins."""
+        y_axis_max = self._calculate_y_axis_max(trend, "logins")
         fig = px.line(
             trend,
             x="Periodo",
@@ -257,8 +260,9 @@ class ChartRenderer:
         fig.update_layout(
             template="plotly_white",
             height=350,
-            margin=dict(l=20, r=20, t=40, b=20),
+            margin=dict(l=20, r=20, t=70, b=20),
             xaxis=dict(tickmode="array", tickvals=tick_vals, ticktext=tick_text),
+            yaxis=dict(rangemode="tozero", range=[0, y_axis_max], automargin=True),
         )
         self._apply_readable_chart_layout(fig)
 
@@ -266,6 +270,7 @@ class ChartRenderer:
 
     def _create_flow_line_chart(self, flow: pd.DataFrame) -> px.line:
         """Create a plotly line chart for ticket flow."""
+        y_axis_max = self._calculate_y_axis_max(flow, "Tickets")
         fig = px.line(
             flow,
             x="Periodo",
@@ -292,8 +297,9 @@ class ChartRenderer:
         fig.update_layout(
             template="plotly_white",
             height=350,
-            margin=dict(l=20, r=20, t=40, b=20),
+            margin=dict(l=20, r=20, t=70, b=20),
             xaxis=dict(tickmode="array", tickvals=tick_vals, ticktext=tick_text),
+            yaxis=dict(rangemode="tozero", range=[0, y_axis_max], automargin=True),
         )
         self._apply_readable_chart_layout(fig)
 
@@ -308,4 +314,21 @@ class ChartRenderer:
             xaxis=dict(title=dict(font=dict(size=16)), tickfont=dict(size=15)),
             yaxis=dict(title=dict(font=dict(size=16)), tickfont=dict(size=15)),
         )
-        fig.update_traces(textfont=dict(size=15))
+        fig.update_traces(textfont=dict(size=15), cliponaxis=False)
+
+    @staticmethod
+    def _calculate_y_axis_max(
+        df: pd.DataFrame,
+        value_col: str,
+        padding_ratio: float = 0.15,
+        minimum_value: float = 1.0,
+    ) -> float:
+        """Calculate Y-axis upper bound with headroom so text labels are not clipped."""
+        if df.empty or value_col not in df.columns:
+            return minimum_value
+
+        max_value = pd.to_numeric(df[value_col], errors="coerce").max()
+        if pd.isna(max_value) or max_value <= 0:
+            return minimum_value
+
+        return float(max_value * (1 + padding_ratio))

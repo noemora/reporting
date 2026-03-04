@@ -69,6 +69,11 @@ class TicketAnalysisApp:
                 [data-testid="stDataFrame"] * {
                     line-height: 1.2 !important;
                 }
+
+                [data-testid="stTabs"] [data-baseweb="tab-list"] button [data-testid="stMarkdownContainer"] p {
+                    font-size: 1.4rem !important;
+                    font-weight: 600 !important;
+                }
             </style>
             """,
             unsafe_allow_html=True,
@@ -155,7 +160,7 @@ class TicketAnalysisApp:
         df = self.validator.validate_and_standardize(df)
         df = self.preprocessor.preprocess(df)
         
-        tab_soporte, tab_comercial = st.tabs(["Reporte - Area Soporte", "Reporte - Area Comercial"])
+        tab_soporte, tab_comercial = st.tabs(["Area Soporte", "Area Comercial"])
 
         with tab_soporte:
             self.dashboard.render_dashboard(

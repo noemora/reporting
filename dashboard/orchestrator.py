@@ -11,6 +11,7 @@ from ui import ChartRenderer
 from utils import TeamFilterHelper, TicketStatusHelper
 
 from .sections_renderer import SectionsRenderer
+from .export_cache import build_excel_bytes_cached, build_pdf_bytes_cached
 from .usage_renderer import UsageRenderer
 
 
@@ -301,6 +302,9 @@ class DashboardOrchestrator:
 
     def _render_filters(self, df: pd.DataFrame, commercial_mode: bool = False) -> tuple:
         """Render filter controls and return selections."""
+        st.caption("Ajusta los filtros y haz clic en 'Aplicar filtros' para actualizar el dashboard.")
+        applied_signature_key = self._build_widget_key("filter", "applied_signature")
+        applied_values_key = self._build_widget_key("filter", "applied_values")
         col1, col2, col3, col4 = st.columns(4)
 
         with col1:
@@ -349,10 +353,6 @@ class DashboardOrchestrator:
                 if team_options
                 else []
             )
-            selected_team_values = self.team_filter_helper.resolve_selected_team_values(
-                selected_team_labels,
-                team_option_map,
-            )
 
         with col4:
             criticidad_options = self.filter.get_criticidad_options(df)
@@ -367,7 +367,47 @@ class DashboardOrchestrator:
                 else []
             )
 
-        return selected_year, selected_client, selected_team_labels, selected_team_values, selected_criticidad
+        current_signature = (
+            selected_year,
+            tuple(selected_client),
+            tuple(selected_team_labels),
+            tuple(selected_criticidad),
+        )
+        if applied_signature_key not in st.session_state:
+            st.session_state[applied_signature_key] = current_signature
+            st.session_state[applied_values_key] = {
+                "selected_year": selected_year,
+                "selected_client": list(selected_client),
+                "selected_team_labels": list(selected_team_labels),
+                "selected_criticidad": list(selected_criticidad),
+            }
+
+        has_changes = st.session_state.get(applied_signature_key) != current_signature
+        submitted = st.button(
+            "Aplicar filtros",
+            disabled=not has_changes,
+            key=self._build_widget_key("filter", "apply"),
+        )
+        if submitted:
+            st.session_state[applied_signature_key] = current_signature
+            st.session_state[applied_values_key] = {
+                "selected_year": selected_year,
+                "selected_client": list(selected_client),
+                "selected_team_labels": list(selected_team_labels),
+                "selected_criticidad": list(selected_criticidad),
+            }
+
+        applied_values = st.session_state.get(applied_values_key, {})
+        applied_year = applied_values.get("selected_year")
+        applied_client = applied_values.get("selected_client", [])
+        applied_team_labels = applied_values.get("selected_team_labels", [])
+        applied_criticidad = applied_values.get("selected_criticidad", [])
+        applied_team_values = self.team_filter_helper.resolve_selected_team_values(
+            applied_team_labels,
+            team_option_map,
+        )
+
+        return applied_year, applied_client, applied_team_labels, applied_team_values, applied_criticidad
 
     def _render_export_section(
         self,
@@ -398,7 +438,7 @@ class DashboardOrchestrator:
 
         include_charts = st.toggle(
             "Incluir gráficos en exportación",
-            value=False,
+            value=True,
             help="Activado: incluye gráficos (consume más memoria, especialmente en PDF). Desactivado: solo tablas (más estable y rápido).",
             disabled=is_busy,
             key=self._build_widget_key("export", "include_charts"),
@@ -410,6 +450,9 @@ class DashboardOrchestrator:
             chart_payload=chart_payload,
             labels=labels,
         )
+        if chart_payload and cache.get("chart_warmup_signature") != excel_signature:
+            self.export_builder.warm_chart_cache_async(chart_payload)
+            cache["chart_warmup_signature"] = excel_signature
         self.export_state_manager.reset_cache_if_signature_changed(
             cache=cache,
             excel_signature=excel_signature,
@@ -474,17 +517,19 @@ class DashboardOrchestrator:
             try:
                 if pending_action == "excel":
                     with st.spinner("Generando archivo Excel..."):
-                        cache["excel_bytes"] = self.export_builder.build_excel_bytes(
+                        cache["excel_bytes"] = build_excel_bytes_cached(
+                            excel_signature,
                             export_tables,
-                            charts=chart_payload,
+                            chart_payload,
                         )
                 else:
                     with st.spinner("Generando archivo PDF..."):
-                        cache["pdf_bytes"] = self.export_builder.build_pdf_bytes(
-                            export_tables,
+                        cache["pdf_bytes"] = build_pdf_bytes_cached(
+                            pdf_signature,
                             title=f"Informes Gerenciales de Tickets - {dashboard_name}",
                             filters_text=filters_text,
-                            charts=chart_payload,
+                            _tables=export_tables,
+                            _charts=chart_payload,
                         )
             except ImportError:
                 st.info("Para exportar PDF instala dependencias con: pip install -r requirements.txt")
