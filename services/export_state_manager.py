@@ -1,4 +1,5 @@
 """Estado y firma de exportaciones para el dashboard."""
+import hashlib
 from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
@@ -56,18 +57,50 @@ class ExportStateManager:
         ]
 
         for table_name, table in export_tables:
-            numeric_sum = pd.to_numeric(table.stack(), errors="coerce").fillna(0).sum()
-            signature_parts.append(f"{table_name}|{table.shape[0]}|{table.shape[1]}|{numeric_sum:.2f}")
+            table_hash = ExportStateManager._hash_table(table)
+            signature_parts.append(f"{table_name}|rows={table.shape[0]}|cols={table.shape[1]}|hash={table_hash}")
 
         if include_charts and chart_payload:
             signature_parts.append(f"charts_count={len(chart_payload)}")
             for chart_name, chart_fig in chart_payload:
-                signature_parts.append(f"chart={chart_name}|fig={int(chart_fig is not None)}")
+                chart_hash = ExportStateManager._hash_chart(chart_fig)
+                signature_parts.append(f"chart={chart_name}|hash={chart_hash}")
 
         export_signature = "||".join(str(part) for part in signature_parts)
-        excel_signature = f"{export_signature}||format=excel||v=2"
-        pdf_signature = f"{export_signature}||format=pdf||v=2"
+        excel_signature = f"{export_signature}||format=excel||v=3"
+        pdf_signature = f"{export_signature}||format=pdf||v=3"
         return excel_signature, pdf_signature
+
+    @staticmethod
+    def _hash_table(table: pd.DataFrame) -> str:
+        """Build deterministic hash for a dataframe content/shape/order."""
+        try:
+            row_hashes = pd.util.hash_pandas_object(table, index=True).values.tobytes()
+            metadata = "|".join(
+                [
+                    ";".join(str(col) for col in table.columns.tolist()),
+                    ";".join(str(dtype) for dtype in table.dtypes.tolist()),
+                    str(table.shape),
+                ]
+            )
+            digest = hashlib.sha1()
+            digest.update(metadata.encode("utf-8"))
+            digest.update(row_hashes)
+            return digest.hexdigest()[:16]
+        except Exception:
+            fallback = f"{table.shape[0]}|{table.shape[1]}"
+            return hashlib.sha1(fallback.encode("utf-8")).hexdigest()[:16]
+
+    @staticmethod
+    def _hash_chart(chart_fig: object) -> str:
+        """Build deterministic hash for plotly chart payload."""
+        if chart_fig is None:
+            return "none"
+        try:
+            chart_json = chart_fig.to_json()
+            return hashlib.sha1(chart_json.encode("utf-8")).hexdigest()[:16]
+        except Exception:
+            return "invalid"
 
     @staticmethod
     def reset_cache_if_signature_changed(

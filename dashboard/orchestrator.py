@@ -11,6 +11,7 @@ from ui import ChartRenderer
 from utils import TeamFilterHelper, TicketStatusHelper
 
 from .sections_renderer import SectionsRenderer
+from .export_cache import build_excel_bytes_cached, build_pdf_bytes_cached
 from .usage_renderer import UsageRenderer
 
 
@@ -301,70 +302,77 @@ class DashboardOrchestrator:
 
     def _render_filters(self, df: pd.DataFrame, commercial_mode: bool = False) -> tuple:
         """Render filter controls and return selections."""
-        col1, col2, col3, col4 = st.columns(4)
+        st.caption("Ajusta los filtros y haz clic en 'Aplicar filtros' para actualizar el dashboard.")
+        with st.form(key=self._build_widget_key("filter", "form"), border=False):
+            col1, col2, col3, col4 = st.columns(4)
 
-        with col1:
-            year_options = sorted(df["Año"].dropna().unique(), reverse=True)
-            current_year = pd.Timestamp.today().year
-            year_index = 0
-            if year_options:
-                year_index = min(
-                    range(len(year_options)),
-                    key=lambda idx: abs(year_options[idx] - current_year),
+            with col1:
+                year_options = sorted(df["Año"].dropna().unique(), reverse=True)
+                current_year = pd.Timestamp.today().year
+                year_index = 0
+                if year_options:
+                    year_index = min(
+                        range(len(year_options)),
+                        key=lambda idx: abs(year_options[idx] - current_year),
+                    )
+                selected_year = (
+                    st.selectbox(
+                        "Año",
+                        year_options,
+                        index=year_index,
+                        key=self._build_widget_key("filter", "year"),
+                        format_func=lambda value: f"{int(value) - 1} - {int(value)}",
+                    )
+                    if year_options
+                    else None
                 )
-            selected_year = (
-                st.selectbox(
-                    "Año",
-                    year_options,
-                    index=year_index,
-                    key=self._build_widget_key("filter", "year"),
-                    format_func=lambda value: f"{int(value) - 1} - {int(value)}",
-                )
-                if year_options
-                else None
-            )
 
-        with col2:
-            client_options = sorted(df["Grupo"].dropna().unique())
-            selected_client = (
-                st.multiselect(
-                    "Cliente (Grupo)",
-                    client_options,
-                    default=[],
-                    key=self._build_widget_key("filter", "cliente"),
+            with col2:
+                client_options = sorted(df["Grupo"].dropna().unique())
+                selected_client = (
+                    st.multiselect(
+                        "Cliente (Grupo)",
+                        client_options,
+                        default=[],
+                        key=self._build_widget_key("filter", "cliente"),
+                    )
+                    if client_options
+                    else []
                 )
-                if client_options
-                else []
-            )
 
-        with col3:
-            team_options, team_option_map = self.team_filter_helper.build_team_filter_config(df, commercial_mode)
-            selected_team_labels = (
-                st.multiselect(
-                    "Team Asignado",
-                    team_options,
-                    default=[],
-                    key=self._build_widget_key("filter", "team"),
+            with col3:
+                team_options, team_option_map = self.team_filter_helper.build_team_filter_config(df, commercial_mode)
+                selected_team_labels = (
+                    st.multiselect(
+                        "Team Asignado",
+                        team_options,
+                        default=[],
+                        key=self._build_widget_key("filter", "team"),
+                    )
+                    if team_options
+                    else []
                 )
-                if team_options
-                else []
-            )
-            selected_team_values = self.team_filter_helper.resolve_selected_team_values(
-                selected_team_labels,
-                team_option_map,
-            )
+                selected_team_values = self.team_filter_helper.resolve_selected_team_values(
+                    selected_team_labels,
+                    team_option_map,
+                )
 
-        with col4:
-            criticidad_options = self.filter.get_criticidad_options(df)
-            selected_criticidad = (
-                st.multiselect(
-                    "Criticidad",
-                    criticidad_options,
-                    default=[],
-                    key=self._build_widget_key("filter", "criticidad"),
+            with col4:
+                criticidad_options = self.filter.get_criticidad_options(df)
+                selected_criticidad = (
+                    st.multiselect(
+                        "Criticidad",
+                        criticidad_options,
+                        default=[],
+                        key=self._build_widget_key("filter", "criticidad"),
+                    )
+                    if criticidad_options
+                    else []
                 )
-                if criticidad_options
-                else []
+
+            st.form_submit_button(
+                "Aplicar filtros",
+                use_container_width=False,
             )
 
         return selected_year, selected_client, selected_team_labels, selected_team_values, selected_criticidad
@@ -477,17 +485,19 @@ class DashboardOrchestrator:
             try:
                 if pending_action == "excel":
                     with st.spinner("Generando archivo Excel..."):
-                        cache["excel_bytes"] = self.export_builder.build_excel_bytes(
+                        cache["excel_bytes"] = build_excel_bytes_cached(
+                            excel_signature,
                             export_tables,
-                            charts=chart_payload,
+                            chart_payload,
                         )
                 else:
                     with st.spinner("Generando archivo PDF..."):
-                        cache["pdf_bytes"] = self.export_builder.build_pdf_bytes(
-                            export_tables,
+                        cache["pdf_bytes"] = build_pdf_bytes_cached(
+                            pdf_signature,
                             title=f"Informes Gerenciales de Tickets - {dashboard_name}",
                             filters_text=filters_text,
-                            charts=chart_payload,
+                            _tables=export_tables,
+                            _charts=chart_payload,
                         )
             except ImportError:
                 st.info("Para exportar PDF instala dependencias con: pip install -r requirements.txt")
