@@ -1,6 +1,7 @@
 """Export utilities for dashboard tables."""
 from __future__ import annotations
 
+import copy
 from io import BytesIO
 import re
 from typing import Any, List, Optional, Tuple
@@ -121,7 +122,6 @@ class ExportBuilder:
         from reportlab.platypus import Image as RLImage
         from reportlab.platypus import (
             CondPageBreak,
-            KeepTogether,
             Paragraph,
             SimpleDocTemplate,
             Spacer,
@@ -152,6 +152,7 @@ class ExportBuilder:
         for name, table in tables:
             if table is None or table.empty:
                 continue
+            story.append(CondPageBreak(28 * mm))
             section_story = [Paragraph(name, styles["Heading3"])]
 
             export_table = table.reset_index().copy()
@@ -180,6 +181,7 @@ class ExportBuilder:
 
             chart_idx = ExportBuilder._pick_chart_index(name, chart_entries, consumed_chart_indexes)
             has_chart = chart_idx is not None
+            chart_height_pt = 0.0
             if chart_idx is not None:
                 chart_name, chart_fig = chart_entries[chart_idx]
                 consumed_chart_indexes.add(chart_idx)
@@ -189,22 +191,13 @@ class ExportBuilder:
                 if chart_bytes is None:
                     section_story.append(Paragraph("No se pudo renderizar este gráfico.", styles["Normal"]))
                 else:
-                    chart_image = RLImage(BytesIO(chart_bytes), width=240 * mm, height=82 * mm)
+                    chart_height_mm = ExportBuilder._calculate_pdf_chart_height_mm(chart_fig)
+                    chart_height_pt = chart_height_mm * mm
+                    chart_image = RLImage(BytesIO(chart_bytes), width=page_width, height=chart_height_pt)
                     section_story.append(chart_image)
 
             section_story.append(Spacer(1, 6 * mm))
-            estimated_height = ExportBuilder._estimate_pdf_section_height(
-                row_count=len(rows),
-                has_chart=has_chart,
-            )
-            max_keep_together_height = 170 * mm
-            if estimated_height <= max_keep_together_height:
-                story.append(CondPageBreak(estimated_height))
-                story.append(KeepTogether(section_story))
-            else:
-                min_start_section_height = 24 * mm
-                story.append(CondPageBreak(min_start_section_height))
-                story.extend(section_story)
+            story.extend(section_story)
 
         doc.build(story)
         output.seek(0)
@@ -236,7 +229,8 @@ class ExportBuilder:
         if fig is None:
             return None
         try:
-            return fig.to_image(format="png", width=1200, height=420, scale=1)
+            export_fig, width_px, height_px = ExportBuilder._prepare_figure_for_export(fig)
+            return export_fig.to_image(format="png", width=width_px, height=height_px, scale=1)
         except Exception:
             return None
 
@@ -246,7 +240,8 @@ class ExportBuilder:
         if fig is None:
             return None
         try:
-            png_bytes = fig.to_image(format="png", width=900, height=320, scale=1)
+            export_fig, width_px, height_px = ExportBuilder._prepare_figure_for_export(fig)
+            png_bytes = export_fig.to_image(format="png", width=width_px, height=height_px, scale=1)
         except Exception:
             return None
 
@@ -336,15 +331,60 @@ class ExportBuilder:
         return [width * factor for width in bounded]
 
     @staticmethod
-    def _estimate_pdf_section_height(row_count: int, has_chart: bool) -> float:
+    def _estimate_pdf_section_height(row_count: int, chart_height_pt: float = 0) -> float:
         """Estimate section height to trigger proactive page breaks when needed."""
         from reportlab.lib.units import mm
 
         title_height = 8 * mm
         table_height = max((row_count + 1) * (5.6 * mm), 16 * mm)
-        chart_height = (90 * mm) if has_chart else 0
+        chart_height = max(chart_height_pt, 0)
         bottom_spacing = 6 * mm
         return title_height + table_height + chart_height + bottom_spacing
+
+    @staticmethod
+    def _count_legend_items(fig: Any) -> int:
+        """Count visible legend items from figure traces."""
+        traces = getattr(fig, "data", []) or []
+        count = 0
+        for trace in traces:
+            show_legend = getattr(trace, "showlegend", None)
+            if show_legend is False:
+                continue
+            count += 1
+        return count
+
+    @staticmethod
+    def _prepare_figure_for_export(fig: Any) -> Tuple[Any, int, int]:
+        """Prepare a figure copy with export-friendly layout so legends are fully visible."""
+        legend_items = ExportBuilder._count_legend_items(fig)
+        extra_height = max(0, legend_items - 7) * 36
+        height_px = min(1100, 520 + extra_height)
+        width_px = 1350
+
+        export_fig = copy.deepcopy(fig)
+        export_fig.update_layout(
+            autosize=False,
+            width=width_px,
+            height=height_px,
+            margin=dict(l=40, r=240, t=80, b=65),
+            legend=dict(
+                orientation="v",
+                x=1.02,
+                xanchor="left",
+                y=1,
+                yanchor="top",
+                itemsizing="constant",
+                tracegroupgap=4,
+            ),
+        )
+        return export_fig, width_px, height_px
+
+    @staticmethod
+    def _calculate_pdf_chart_height_mm(fig: Any) -> float:
+        """Calculate PDF chart height based on legend size to keep all entries readable."""
+        legend_items = ExportBuilder._count_legend_items(fig)
+        extra_height_mm = max(0, legend_items - 7) * 5
+        return min(145.0, 95.0 + extra_height_mm)
 
     @staticmethod
     def _name_tokens(name: str) -> set[str]:
