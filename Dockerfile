@@ -3,13 +3,17 @@ FROM python:3.11.9-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    CHROME_BIN=/usr/bin/chromium \
+    BROWSER_PATH=/usr/bin/chromium
 
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     git \
+    chromium \
+    fonts-liberation \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.lock.txt ./requirements.lock.txt
