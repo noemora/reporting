@@ -38,6 +38,26 @@ Se incluye una imagen Docker basada en Python `3.11.9` con dependencias bloquead
 - `datasources/` se excluye del contexto de build (`.dockerignore`) para no copiar datos locales al contenedor.
 - Si necesitas montar datos locales en runtime, puedes agregar un volumen en `docker-compose.yml`.
 
+### Troubleshooting: PDF con graficos en Docker
+Si al exportar PDF aparece el mensaje `No se pudo renderizar este grafico.`, la causa comun es que Plotly/Kaleido no encuentra Chromium dentro del contenedor.
+
+- Este proyecto usa `plotly` + `kaleido` para convertir figuras a imagen antes de insertarlas en el PDF.
+- En `kaleido` moderno (1.x), el navegador no viene embebido y debe existir en el sistema.
+
+Solucion:
+1. Asegurar que la imagen Docker instale `chromium`.
+2. Rebuild completo para refrescar capas:
+   - `docker compose down`
+   - `docker compose build --no-cache`
+   - `docker compose up -d`
+
+### Deploy en Streamlit Community Cloud
+En Streamlit Community Cloud el `Dockerfile` no se usa. Para este mismo problema, la solucion equivalente es versionar `packages.txt` en la raiz del repo con dependencias del sistema (por ejemplo `chromium`).
+
+Si ya subiste cambios y sigue el error:
+1. Ir a `Manage app` -> `Reboot app`.
+2. Si persiste, hacer `Reboot app` + `Clear cache` para forzar reinstalacion del entorno.
+
 ## Archivos de entrada
 ### Reporte comercial
 Se espera un Excel con las columnas (los nombres se normalizan automaticamente):
