@@ -20,7 +20,7 @@ class TableBuilder:
                 self.config.MONTH_NAMES_ES[m]: [created_counts.get(m, 0), resolved_counts.get(m, 0)]
                 for m in month_order
             },
-            index=["Creados por cliente", "Resueltos por Soporte N5"],
+            index=["Creados", "Resueltos"],
         )
         table.index.name = "Recepcion/atencion de tickets"
         table = table.fillna(0)
