@@ -22,8 +22,16 @@ class DataValidator:
         normalized_map = self._build_column_map(df.columns.tolist())
         rename_map = self._build_rename_map(normalized_map)
         df = df.rename(columns=rename_map)
+        df = self._ensure_required_columns(df)
         
         self._check_missing_core_columns(df)
+        return df
+
+    def _ensure_required_columns(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Guarantee schema columns exist even when source values are completely null."""
+        for required in self.config.REQUIRED_COLUMNS:
+            if required not in df.columns:
+                df[required] = pd.NA
         return df
     
     def _build_column_map(self, columns: List[str]) -> Dict[str, str]:

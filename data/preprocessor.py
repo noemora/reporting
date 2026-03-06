@@ -38,7 +38,11 @@ class DataPreprocessor:
         """Convert datetime columns to proper datetime type."""
         for col in self.config.DATETIME_COLUMNS:
             if col in df.columns:
-                df[col] = pd.to_datetime(df[col], errors="coerce")
+                parsed = pd.to_datetime(df[col], errors="coerce")
+                # Evita warnings posteriores con to_period("M") en series con tz.
+                if getattr(parsed.dt, "tz", None) is not None:
+                    parsed = parsed.dt.tz_localize(None)
+                df[col] = parsed
         return df
     
     def _parse_numeric_columns(self, df: pd.DataFrame) -> pd.DataFrame:

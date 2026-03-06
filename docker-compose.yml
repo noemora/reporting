@@ -9,4 +9,8 @@ services:
     environment:
       STREAMLIT_BROWSER_GATHER_USAGE_STATS: "false"
       TZ: "America/Bogota"
+      FRESHDESK_DOMAIN: ${FRESHDESK_DOMAIN:-}
+      FRESHDESK_API_KEY: ${FRESHDESK_API_KEY:-}
+    volumes:
+      - ./datasources:/app/datasources
     restart: unless-stopped

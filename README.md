@@ -15,6 +15,52 @@ Aplicacion en Streamlit para reporte gerenciales, en el que se puede aplicar fil
 ## Ejecucion
 - `streamlit run app.py`
 
+## Ingestion automatica desde Freshdesk
+La app soporta dos fuentes para el reporte comercial:
+- `Freshdesk sincronizado` (snapshot local en Parquet).
+- `Archivo manual` (Excel cargado desde UI).
+
+### Configuracion
+1. Copia `.env.example` a `.env`.
+2. Define:
+    - `FRESHDESK_DOMAIN` (por ejemplo `empresa.freshdesk.com`).
+    - `FRESHDESK_API_KEY`.
+   - Opcional: `FRESHDESK_BACKFILL_UPDATED_SINCE` (por ejemplo `2020-01-01T00:00:00Z`).
+
+### Comando unico de sincronizacion
+- Backfill inicial completo:
+   - `python -m scripts.freshdesk_sync --mode backfill`
+- Incremental diario:
+   - `python -m scripts.freshdesk_sync --mode incremental`
+
+El comando genera:
+- Snapshot: `datasources/freshdesk_tickets.parquet`
+- Estado/watermark: `datasources/freshdesk_sync_state.json`
+
+### Scheduler recomendado para Streamlit Community Cloud (GitHub Actions)
+Para mantener actualizada la data en Streamlit Community Cloud, usa el workflow versionado en:
+- `.github/workflows/freshdesk_daily_sync.yml`
+
+El workflow:
+- Corre diario a las `12:00 UTC`.
+- Ejecuta `python -m scripts.freshdesk_sync --mode incremental`.
+- Guarda cambios en:
+   - `datasources/freshdesk_tickets.parquet`
+   - `datasources/freshdesk_sync_state.json`
+- Hace commit/push automatico al repositorio.
+
+Configuracion requerida en GitHub (`Settings` -> `Secrets and variables` -> `Actions`):
+- `FRESHDESK_DOMAIN`
+- `FRESHDESK_API_KEY`
+
+Opcional:
+- Ejecutar manualmente desde `Actions` -> `Freshdesk Daily Sync` -> `Run workflow`.
+- En ejecucion manual puedes elegir:
+   - `sync_mode = incremental` (default)
+   - `sync_mode = backfill`
+- Si eliges `backfill`, puedes indicar `backfill_updated_since` (ejemplo `2020-01-01T00:00:00Z`).
+- Si no indicas `backfill_updated_since`, se usa el valor por defecto de la app (`FRESHDESK_BACKFILL_UPDATED_SINCE`).
+
 ## Docker (entorno reproducible)
 Se incluye una imagen Docker basada en Python `3.11.9` con dependencias bloqueadas en `requirements.lock.txt`.
 
@@ -34,33 +80,9 @@ Se incluye una imagen Docker basada en Python `3.11.9` con dependencias bloquead
 - `docker compose build --no-cache`
 - `docker compose up -d`
 
-### Nota sobre archivos de datos
-- `datasources/` se excluye del contexto de build (`.dockerignore`) para no copiar datos locales al contenedor.
-- Si necesitas montar datos locales en runtime, puedes agregar un volumen en `docker-compose.yml`.
-
-### Troubleshooting: PDF con graficos en Docker
-Si al exportar PDF aparece el mensaje `No se pudo renderizar este grafico.`, la causa comun es que Plotly/Kaleido no encuentra Chromium dentro del contenedor.
-
-- Este proyecto usa `plotly` + `kaleido` para convertir figuras a imagen antes de insertarlas en el PDF.
-- En `kaleido` moderno (1.x), el navegador no viene embebido y debe existir en el sistema.
-
-Solucion:
-1. Asegurar que la imagen Docker instale `chromium`.
-2. Rebuild completo para refrescar capas:
-   - `docker compose down`
-   - `docker compose build --no-cache`
-   - `docker compose up -d`
-
-### Deploy en Streamlit Community Cloud
-En Streamlit Community Cloud el `Dockerfile` no se usa. Para este mismo problema, la solucion equivalente es versionar `packages.txt` en la raiz del repo con dependencias del sistema (por ejemplo `chromium`).
-
-Si ya subiste cambios y sigue el error:
-1. Ir a `Manage app` -> `Reboot app`.
-2. Si persiste, hacer `Reboot app` + `Clear cache` para forzar reinstalacion del entorno.
-
 ## Archivos de entrada
 ### Reporte comercial
-Se espera un Excel con las columnas (los nombres se normalizan automaticamente):
+Si usas carga manual, se espera un Excel con las columnas (los nombres se normalizan automaticamente):
 
 - ID del ticket, Asunto, Estado, Prioridad, Origen, Tipo
 - Agente, Grupo, Hora de creacion, Tiempo de vencimiento
@@ -86,12 +108,16 @@ Se espera un Excel con columnas (insensible a mayusculas/espacios):
 
 ## Uso
 1. Ejecuta la app.
-2. Carga ambos archivos.
-3. Elige el dashboard:
+2. En `Carga de archivos`, selecciona la fuente del reporte comercial:
+   - `Freshdesk sincronizado` (usa snapshot local).
+   - `Archivo manual` (sube el Excel).
+3. Carga el archivo de logins.
+4. Procesa informacion.
+5. Elige el dashboard:
    - Dashboard Soporte: incluye Usabilidad, Incidencias (Flujo, Cliente, Team Asignado, Criticidad, SLA, SLA por criticidad, Modulo, Ambiente, Estado), Cambios (Cliente, Team, Módulo, Estado) y Mejoras (Team, Módulo, Estado).
    - Dashboard Comercial: incluye Usabilidad, Incidencias (Flujo, Cliente, Criticidad, SLA, SLA por criticidad, Módulo, Estado) y Cambios (Cliente, Módulo, Estado).
-4. Selecciona filtros por año, cliente, team asignado y criticidad.
-5. Revisa KPIs, tablas y tendencias.
+6. Selecciona filtros por año, cliente, team asignado y criticidad.
+7. Revisa KPIs, tablas y tendencias.
 
 ## Estructura del proyecto
 - app.py: punto de entrada y coordinacion de componentes.
@@ -112,6 +138,7 @@ Se espera un Excel con columnas (insensible a mayusculas/espacios):
 
 ## Configuracion
 - Actualiza los catalogos en config/settings.py para columnas, meses, estados resueltos y ambientes productivos.
+- Si cambian campos custom de Freshdesk, ajusta `FRESHDESK_CUSTOM_FIELD_MAPPING` en `config/settings.py`.
 - Si agregas KPIs, ajusta dashboard/orchestrator.py y los helpers de services/ y ui/.
 - Si actualizas librerias del entorno local, regenera y versiona `requirements.lock.txt` para mantener la reproducibilidad entre equipos.
 

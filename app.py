@@ -8,7 +8,7 @@ import streamlit as st
 from pathlib import Path
 
 from config import AppConfig
-from data import ExcelDataLoader, DataValidator, DataPreprocessor
+from data import ExcelDataLoader, FreshdeskSnapshotLoader, DataValidator, DataPreprocessor
 from dashboard import DashboardOrchestrator
 
 
@@ -18,9 +18,26 @@ class TicketAnalysisApp:
     def __init__(self):
         self.config = AppConfig()
         self.data_loader = ExcelDataLoader()
+        self.snapshot_loader = FreshdeskSnapshotLoader()
         self.validator = DataValidator(self.config)
         self.preprocessor = DataPreprocessor(self.config)
         self.dashboard = DashboardOrchestrator(self.config)
+
+    def _get_report_df_from_source(self) -> tuple:
+        """Resolve report DataFrame from selected source in session state."""
+        source = st.session_state.get("report_source", "manual")
+
+        if source == "freshdesk":
+            snapshot_path = self.config.freshdesk_snapshot_path
+            if not snapshot_path.exists():
+                raise FileNotFoundError("No existe snapshot Freshdesk para cargar.")
+            snapshot_signature = snapshot_path.stat().st_mtime
+            return self.snapshot_loader.load(str(snapshot_path), snapshot_signature), "snapshot"
+
+        report_bytes = st.session_state.get("report_bytes")
+        if not report_bytes:
+            raise ValueError("No se encontro archivo manual del reporte comercial.")
+        return self.data_loader.load(report_bytes), "manual"
 
     @staticmethod
     def _apply_readability_styles() -> None:
@@ -103,6 +120,8 @@ class TicketAnalysisApp:
             st.session_state.processed = False
         if "uploader_key" not in st.session_state:
             st.session_state.uploader_key = 0
+        if "report_source" not in st.session_state:
+            st.session_state.report_source = "freshdesk" if self.config.freshdesk_snapshot_path.exists() else "manual"
 
         with st.expander("Carga de archivos", expanded=not st.session_state.processed):
             if st.session_state.processed:
@@ -114,15 +133,36 @@ class TicketAnalysisApp:
                     st.session_state.pop("logins_bytes", None)
                     st.rerun()
             else:
-                st.caption("Carga el Excel del reporte comercial y el Excel de logins.")
+                st.caption("Selecciona fuente para reporte comercial y carga el Excel de logins.")
+                source_label = st.radio(
+                    "Fuente de datos del reporte comercial",
+                    options=["Freshdesk sincronizado", "Archivo manual"],
+                    index=0 if st.session_state.report_source == "freshdesk" else 1,
+                    key=f"report_source_radio_{st.session_state.uploader_key}",
+                )
+
+                selected_source = "freshdesk" if source_label == "Freshdesk sincronizado" else "manual"
+                st.session_state.report_source = selected_source
+
+                has_snapshot = self.config.freshdesk_snapshot_path.exists()
+                if selected_source == "freshdesk":
+                    if has_snapshot:
+                        st.success(f"Snapshot detectado: {self.config.freshdesk_snapshot_path}")
+                    else:
+                        st.warning(
+                            "No existe snapshot Freshdesk aun. Ejecuta primero el comando de sync diario."
+                        )
+
                 col1, col2 = st.columns(2)
                 with col1:
-                    report_file = st.file_uploader(
-                        "Reporte comercial (Excel)",
-                        type=["xlsx", "xls", "csv"],
-                        accept_multiple_files=False,
-                        key=f"report_file_{st.session_state.uploader_key}",
-                    )
+                    report_file = None
+                    if selected_source == "manual":
+                        report_file = st.file_uploader(
+                            "Reporte comercial (Excel)",
+                            type=["xlsx", "xls", "csv"],
+                            accept_multiple_files=False,
+                            key=f"report_file_{st.session_state.uploader_key}",
+                        )
                 with col2:
                     logins_file = st.file_uploader(
                         "Logins (Excel)",
@@ -131,32 +171,45 @@ class TicketAnalysisApp:
                         key=f"logins_file_{st.session_state.uploader_key}",
                     )
 
-                can_process = report_file is not None and logins_file is not None
+                manual_ready = report_file is not None if selected_source == "manual" else has_snapshot
+                can_process = manual_ready and logins_file is not None
                 process_clicked = st.button("Procesar informacion", disabled=not can_process)
                 if process_clicked:
-                    st.session_state.report_bytes = report_file.getvalue()
+                    if selected_source == "manual" and report_file is not None:
+                        st.session_state.report_bytes = report_file.getvalue()
+                    else:
+                        st.session_state.pop("report_bytes", None)
                     st.session_state.logins_bytes = logins_file.getvalue()
                     st.session_state.processed = True
                     st.rerun()
 
                 if not can_process:
-                    st.info("Carga ambos archivos para habilitar el procesamiento.")
+                    if selected_source == "manual":
+                        st.info("Carga el reporte comercial y logins para habilitar el procesamiento.")
+                    else:
+                        st.info("Necesitas snapshot Freshdesk + archivo de logins para procesar.")
                     return
 
                 if not st.session_state.processed:
                     st.info("Haz clic en 'Procesar informacion' para iniciar.")
                     return
 
-        report_bytes = st.session_state.get("report_bytes")
         logins_bytes = st.session_state.get("logins_bytes")
-        if not report_bytes or not logins_bytes:
+        if not logins_bytes:
             st.warning("No se encontraron archivos cargados para procesar.")
             return
 
         usage_df = self.data_loader.load(logins_bytes)
 
-        # Load and process data
-        df = self.data_loader.load(report_bytes)
+        try:
+            df, source_kind = self._get_report_df_from_source()
+        except (FileNotFoundError, ValueError) as error:
+            st.error(str(error))
+            return
+
+        if source_kind == "snapshot":
+            st.caption("Fuente reporte comercial: Freshdesk sincronizado")
+
         df = self.validator.validate_and_standardize(df)
         df = self.preprocessor.preprocess(df)
         
