@@ -11,6 +11,7 @@ Aplicacion en Streamlit para reporte gerenciales, en el que se puede aplicar fil
    - `py -m venv .venv`
 2. Instalar dependencias:
    - `pip install -r requirements.txt`
+   - Nota: `requirements.txt` referencia `requirements.lock.txt` para mantener versiones fijas y reproducibles (local, Docker y Streamlit Cloud).
 
 ## Ejecucion
 - `streamlit run app.py`
