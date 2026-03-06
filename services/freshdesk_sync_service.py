@@ -10,6 +10,7 @@ import pandas as pd
 
 from config import AppConfig
 from datasources import FreshdeskClient, FreshdeskTicketMapper
+from .freshdesk_enrichment_service import FreshdeskEnrichmentService
 
 
 @dataclass
@@ -31,6 +32,7 @@ class FreshdeskSyncService:
         self.config = config
         self.client = FreshdeskClient(config)
         self.mapper = FreshdeskTicketMapper(config)
+        self.enricher = FreshdeskEnrichmentService(config, self.client)
 
     def sync(self, mode: str) -> SyncResult:
         """Run a sync in `backfill` or `incremental` mode."""
@@ -44,7 +46,9 @@ class FreshdeskSyncService:
             updated_since = self._resolve_backfill_start()
 
         tickets = list(self.client.iter_tickets(updated_since=updated_since))
-        incoming_df = self.mapper.to_dataframe(tickets)
+        dynamic_status_map = self._build_status_map()
+        incoming_df = self.mapper.to_dataframe(tickets, status_map_override=dynamic_status_map)
+        incoming_df = self.enricher.enrich(incoming_df)
 
         merged_df = incoming_df if mode == "backfill" else self._merge_with_snapshot(incoming_df)
 
@@ -163,6 +167,11 @@ class FreshdeskSyncService:
                 normalized[col] = normalized[col].map(self._coerce_text_value)
 
         return normalized
+
+    def _build_status_map(self) -> Dict[int, str]:
+        """Build effective status map combining API metadata and local overrides."""
+        api_map = self.client.get_ticket_status_map()
+        return {**api_map, **self.config.FRESHDESK_STATUS_MAP}
 
     @staticmethod
     def _coerce_text_value(value):

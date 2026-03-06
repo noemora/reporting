@@ -72,7 +72,7 @@ class AppConfig:
         if self.FRESHDESK_CUSTOM_FIELD_MAPPING is None:
             self.FRESHDESK_CUSTOM_FIELD_MAPPING = {
                 # Ajusta estos valores segun los nombres reales de custom fields en Freshdesk.
-                "Modulo": "cf_modulo",
+                "Modulo": "cf_mdulo", #NO TOCAR, este es el nombre correcto del campo a pesar de la falta de tilde.
                 "Team Asignado": "cf_team_asignado",
                 "Responsable Tk": "cf_responsable_tk",
                 "Url afectada": "cf_url_afectada",
