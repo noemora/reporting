@@ -25,6 +25,7 @@ La app soporta dos fuentes para el reporte comercial:
 2. Define:
     - `FRESHDESK_DOMAIN` (por ejemplo `empresa.freshdesk.com`).
     - `FRESHDESK_API_KEY`.
+   - Opcional: `FRESHDESK_BACKFILL_UPDATED_SINCE` (por ejemplo `2020-01-01T00:00:00Z`).
 
 ### Comando unico de sincronizacion
 - Backfill inicial completo:
@@ -36,17 +37,29 @@ El comando genera:
 - Snapshot: `datasources/freshdesk_tickets.parquet`
 - Estado/watermark: `datasources/freshdesk_sync_state.json`
 
-### Scheduler multi-entorno (12:00 UTC)
-- Windows Task Scheduler:
-   - Programa: `python`
-   - Argumentos: `-m scripts.freshdesk_sync --mode incremental`
-   - Trigger: diario a las `12:00` UTC.
+### Scheduler recomendado para Streamlit Community Cloud (GitHub Actions)
+Para mantener actualizada la data en Streamlit Community Cloud, usa el workflow versionado en:
+- `.github/workflows/freshdesk_daily_sync.yml`
 
-- Linux cron:
-   - `0 12 * * * cd /ruta/KPI && /ruta/python -m scripts.freshdesk_sync --mode incremental >> /var/log/freshdesk_sync.log 2>&1`
+El workflow:
+- Corre diario a las `12:00 UTC`.
+- Ejecuta `python -m scripts.freshdesk_sync --mode incremental`.
+- Guarda cambios en:
+   - `datasources/freshdesk_tickets.parquet`
+   - `datasources/freshdesk_sync_state.json`
+- Hace commit/push automatico al repositorio.
 
-- Docker/Linux:
-   - Ejecuta el mismo comando dentro del contenedor/app host usando un scheduler externo (cron del host o plataforma).
+Configuracion requerida en GitHub (`Settings` -> `Secrets and variables` -> `Actions`):
+- `FRESHDESK_DOMAIN`
+- `FRESHDESK_API_KEY`
+
+Opcional:
+- Ejecutar manualmente desde `Actions` -> `Freshdesk Daily Sync` -> `Run workflow`.
+- En ejecucion manual puedes elegir:
+   - `sync_mode = incremental` (default)
+   - `sync_mode = backfill`
+- Si eliges `backfill`, puedes indicar `backfill_updated_since` (ejemplo `2020-01-01T00:00:00Z`).
+- Si no indicas `backfill_updated_since`, se usa el valor por defecto de la app (`FRESHDESK_BACKFILL_UPDATED_SINCE`).
 
 ## Docker (entorno reproducible)
 Se incluye una imagen Docker basada en Python `3.11.9` con dependencias bloqueadas en `requirements.lock.txt`.
@@ -66,31 +79,6 @@ Se incluye una imagen Docker basada en Python `3.11.9` con dependencias bloquead
 ### Rebuild forzado (si cambian dependencias)
 - `docker compose build --no-cache`
 - `docker compose up -d`
-
-### Nota sobre archivos de datos
-- `datasources/` se excluye del contexto de build (`.dockerignore`) para no copiar datos locales al contenedor.
-- Si necesitas montar datos locales en runtime, puedes agregar un volumen en `docker-compose.yml`.
-- Para usar `Freshdesk sincronizado` desde Docker, monta `datasources/` como volumen para persistir snapshot y estado.
-
-### Troubleshooting: PDF con graficos en Docker
-Si al exportar PDF aparece el mensaje `No se pudo renderizar este grafico.`, la causa comun es que Plotly/Kaleido no encuentra Chromium dentro del contenedor.
-
-- Este proyecto usa `plotly` + `kaleido` para convertir figuras a imagen antes de insertarlas en el PDF.
-- En `kaleido` moderno (1.x), el navegador no viene embebido y debe existir en el sistema.
-
-Solucion:
-1. Asegurar que la imagen Docker instale `chromium`.
-2. Rebuild completo para refrescar capas:
-   - `docker compose down`
-   - `docker compose build --no-cache`
-   - `docker compose up -d`
-
-### Deploy en Streamlit Community Cloud
-En Streamlit Community Cloud el `Dockerfile` no se usa. Para este mismo problema, la solucion equivalente es versionar `packages.txt` en la raiz del repo con dependencias del sistema (por ejemplo `chromium`).
-
-Si ya subiste cambios y sigue el error:
-1. Ir a `Manage app` -> `Reboot app`.
-2. Si persiste, hacer `Reboot app` + `Clear cache` para forzar reinstalacion del entorno.
 
 ## Archivos de entrada
 ### Reporte comercial

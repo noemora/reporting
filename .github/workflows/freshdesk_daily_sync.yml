@@ -1,0 +1,93 @@
+name: Freshdesk Daily Sync
+
+on:
+  schedule:
+    - cron: "0 12 * * *"
+  workflow_dispatch:
+    inputs:
+      sync_mode:
+        description: "Modo de sincronizacion"
+        required: true
+        default: "incremental"
+        type: choice
+        options:
+          - incremental
+          - backfill
+      backfill_updated_since:
+        description: "Solo para backfill. Formato UTC ISO (ej: 2020-01-01T00:00:00Z)"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: freshdesk-daily-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Validate required secrets
+        env:
+          FRESHDESK_DOMAIN: ${{ secrets.FRESHDESK_DOMAIN }}
+          FRESHDESK_API_KEY: ${{ secrets.FRESHDESK_API_KEY }}
+        run: |
+          test -n "$FRESHDESK_DOMAIN" || (echo "Missing secret: FRESHDESK_DOMAIN" && exit 1)
+          test -n "$FRESHDESK_API_KEY" || (echo "Missing secret: FRESHDESK_API_KEY" && exit 1)
+
+      - name: Freshdesk incremental sync
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_SYNC_MODE: ${{ inputs.sync_mode }}
+          INPUT_BACKFILL_UPDATED_SINCE: ${{ inputs.backfill_updated_since }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            sync_mode="$INPUT_SYNC_MODE"
+          else
+            sync_mode="incremental"
+          fi
+
+          echo "SYNC_MODE=$sync_mode" >> "$GITHUB_ENV"
+
+          if [ "$sync_mode" = "backfill" ] && [ -n "$INPUT_BACKFILL_UPDATED_SINCE" ]; then
+            echo "FRESHDESK_BACKFILL_UPDATED_SINCE=$INPUT_BACKFILL_UPDATED_SINCE" >> "$GITHUB_ENV"
+          fi
+
+      - name: Freshdesk sync
+        env:
+          FRESHDESK_DOMAIN: ${{ secrets.FRESHDESK_DOMAIN }}
+          FRESHDESK_API_KEY: ${{ secrets.FRESHDESK_API_KEY }}
+          FRESHDESK_BACKFILL_UPDATED_SINCE: ${{ env.FRESHDESK_BACKFILL_UPDATED_SINCE }}
+        run: |
+          python -m scripts.freshdesk_sync --mode "$SYNC_MODE"
+
+      - name: Commit snapshot changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add datasources/freshdesk_tickets.parquet datasources/freshdesk_sync_state.json
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git commit -m "chore(sync): update Freshdesk snapshot ($SYNC_MODE)"
+          git push
